@@ -1248,6 +1248,131 @@ function initStrategyWizard() {
     );
   });
 
+  // Transmit Order from Wizard button handler
+  const executeWizTradeBtn = document.getElementById("executeWizTradeBtn");
+  if (executeWizTradeBtn) {
+    executeWizTradeBtn.addEventListener("click", () => {
+      const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
+      
+      // Let's compute expiry string based on wizDate selection
+      const expirySelect = document.getElementById("wizDate");
+      const expiryDays = parseInt(expirySelect ? expirySelect.value : 14) || 14;
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + expiryDays);
+      
+      // Find next Friday if target is 7 or 14 to match weekly expirations
+      if (expiryDays === 7 || expiryDays === 14) {
+        const currentDay = targetDate.getDay();
+        const daysToFriday = (5 - currentDay + 7) % 7;
+        targetDate.setDate(targetDate.getDate() + daysToFriday);
+      }
+      
+      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const expiryStr = `${months[targetDate.getMonth()]} ${targetDate.getDate()}, ${targetDate.getFullYear()}`;
+      
+      const qty = parseInt(wizQty ? wizQty.value : 1) || 1;
+      const width = parseFloat(wizSpreadWidth ? wizSpreadWidth.value : 1.0) || 1.0;
+      
+      showHoverPanel("Analyzing Strikes", `Fetching option chain data for <strong>${ticker}</strong> (${expiryStr})...`);
+      
+      fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiryStr)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
+      .then(res => res.json())
+      .then(data => {
+        // Find preselected strikes for Spreads based on Delta parameters and configurable Spread Width
+        function findStrikeWithWidth(strikes, shortStrikeVal, width, direction, type) {
+          const targetStrikeVal = shortStrikeVal + (direction * width);
+          let closest = null;
+          let minDiff = Infinity;
+          for (const s of strikes) {
+            const val = parseFloat(s.strike);
+            const diff = Math.abs(val - targetStrikeVal);
+            if (diff < minDiff) {
+              minDiff = diff;
+              closest = s;
+            }
+          }
+          return closest;
+        }
+
+        const bpSellPut = findStrikeByDelta(data.strikes, -0.25, 'PUT');
+        const bpBuyPut = bpSellPut ? findStrikeWithWidth(data.strikes, parseFloat(bpSellPut.strike), width, -1, 'PUT') : null;
+
+        const bcSellCall = findStrikeByDelta(data.strikes, 0.25, 'CALL');
+        const bcBuyCall = bcSellCall ? findStrikeWithWidth(data.strikes, parseFloat(bcSellCall.strike), width, 1, 'CALL') : null;
+
+        const dbBuyCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
+        const dbSellCall = dbBuyCall ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyCall.strike), width, 1, 'CALL') : null;
+
+        const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+        const dbSellPut = dbBuyPut ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyPut.strike), width, -1, 'PUT') : null;
+
+        const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
+        const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+
+        let selectedStrategy = "";
+        let selectedLegs = "";
+        let selectedPremium = "";
+        let selectedRisk = "";
+
+        if (wizDirection === "up") {
+          if (wizSpeed === "fast" && dbBuyCall && dbSellCall) {
+            selectedStrategy = "Bull Call Debit Spread";
+            selectedLegs = `Buy ${dbBuyCall.strike}C / Sell ${dbSellCall.strike}C`;
+            const cost = Math.max(0.05, parseFloat(dbBuyCall.callAsk) - parseFloat(dbSellCall.callBid));
+            selectedPremium = `-$${cost.toFixed(2)}`;
+            selectedRisk = `$${(cost * 100).toFixed(2)}`;
+          } else if (bpSellPut && bpBuyPut) {
+            selectedStrategy = "Bull Put Credit Spread";
+            selectedLegs = `Sell ${bpSellPut.strike}P / Buy ${bpBuyPut.strike}P`;
+            const credit = Math.max(0.05, parseFloat(bpSellPut.putBid) - parseFloat(bpBuyPut.putAsk));
+            selectedPremium = `+$${credit.toFixed(2)}`;
+            selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
+          }
+        } else if (wizDirection === "down") {
+          if (wizSpeed === "fast" && dbBuyPut && dbSellPut) {
+            selectedStrategy = "Bear Put Debit Spread";
+            selectedLegs = `Buy ${dbBuyPut.strike}P / Sell ${dbSellPut.strike}P`;
+            const cost = Math.max(0.05, parseFloat(dbBuyPut.putAsk) - parseFloat(dbSellPut.putBid));
+            selectedPremium = `-$${cost.toFixed(2)}`;
+            selectedRisk = `$${(cost * 100).toFixed(2)}`;
+          } else if (bcSellCall && bcBuyCall) {
+            selectedStrategy = "Bear Call Credit Spread";
+            selectedLegs = `Sell ${bcSellCall.strike}C / Buy ${bcBuyCall.strike}C`;
+            const credit = Math.max(0.05, parseFloat(bcSellCall.callBid) - parseFloat(bcBuyCall.callAsk));
+            selectedPremium = `+$${credit.toFixed(2)}`;
+            selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
+          }
+        } else if (wizDirection === "sideways" && bpSellPut && bpBuyPut && bcSellCall && bcBuyCall) {
+          selectedStrategy = "Iron Condor";
+          selectedLegs = `Sell ${bcSellCall.strike}C/Buy ${bcBuyCall.strike}C + Sell ${bpSellPut.strike}P/Buy ${bpBuyPut.strike}P`;
+          const putCredit = parseFloat(bpSellPut.putBid) - parseFloat(bpBuyPut.putAsk);
+          const callCredit = parseFloat(bcSellCall.callBid) - parseFloat(bcBuyCall.callAsk);
+          const credit = Math.max(0.10, putCredit + callCredit);
+          selectedPremium = `+$${credit.toFixed(2)}`;
+          selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
+        } else if (wizDirection === "breakout" && atmCall && atmPut) {
+          selectedStrategy = "Straddle";
+          selectedLegs = `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`;
+          const cost = parseFloat(atmCall.callAsk) + parseFloat(atmPut.putAsk);
+          selectedPremium = `-$${cost.toFixed(2)}`;
+          selectedRisk = `$${(cost * 100).toFixed(2)}`;
+        }
+
+        if (!selectedStrategy || !selectedLegs) {
+          showHoverPanel("Calculation Error", "Could not calculate optimal strikes for this ticker and expiration. Try another asset.");
+          return;
+        }
+
+        // Trigger trade modal with actual real-time pricing and computed strikes
+        tradeSpreadFromChain(ticker, selectedStrategy, selectedLegs, selectedPremium, selectedRisk);
+      })
+      .catch(err => {
+        showHoverPanel("Connection Error", "Failed to retrieve option chain. Ensure Alpaca API Credentials are valid.");
+        console.error(err);
+      });
+    });
+  }
+
   // Initial calculation run
   calculateWizardStrategy();
 }
