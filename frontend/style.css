@@ -1053,10 +1053,11 @@ body {
 
   /* 1. App Layout Re-stacking */
   .app-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
     height: auto;
-    width: 100vw;
     overflow-x: hidden;
   }
 
@@ -1065,6 +1066,8 @@ body {
     margin: 8px;
     padding: 12px 16px;
     height: auto;
+    width: calc(100% - 16px);
+    box-sizing: border-box;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
@@ -1124,9 +1127,12 @@ body {
 
   /* 3. Main Content Container */
   .main-content {
-    padding: 16px;
+    width: 100%;
+    max-width: 100%;
+    padding: 12px;
+    box-sizing: border-box;
     height: auto;
-    overflow-y: visible;
+    overflow-x: hidden;
   }
 
   .tab-header {
