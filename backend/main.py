@@ -1,5 +1,6 @@
 import os
 import json
+import requests
 import uuid
 import hashlib
 import re
@@ -349,10 +350,21 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
     
     ticker_upper = ticker.strip().upper()
-    underlying_price = 180.0 # Default fallback
+    
+    # 1. Try fetching real-time price from Yahoo Finance (fast, key-free, and handles live keys without subscription errors)
+    underlying_price = None
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            underlying_price = float(data["chart"]["result"][0]["meta"]["regularMarketPrice"])
+    except Exception:
+        pass
 
-    # Try fetching real-time price from Alpaca Stock Client
-    if api_key and secret_key:
+    # 2. Try fetching from Alpaca as fallback
+    if underlying_price is None and api_key and secret_key:
         try:
             from alpaca.data.historical import StockHistoricalDataClient
             from alpaca.data.requests import StockLatestTradeRequest
@@ -364,6 +376,15 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
                 underlying_price = float(trade_res[ticker_upper].price)
         except Exception:
             pass
+
+    # 3. Final default fallback based on typical prices
+    if underlying_price is None:
+        if ticker_upper == "QQQ":
+            underlying_price = 740.0
+        elif ticker_upper == "AAPL":
+            underlying_price = 310.0
+        else:
+            underlying_price = 180.0
 
     # 2. Get Expiration & DTE (Days to Expiration)
     yymmdd = format_date_to_yymmdd(expiry)
