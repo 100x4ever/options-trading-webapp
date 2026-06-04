@@ -772,22 +772,40 @@ function renderOptionChain() {
       </tr>
     `).join("");
 
-    // Find preselected strikes for Spreads based on Delta parameters
-    // Credit Put Spread (Bull Put): Sell -0.25 delta, Buy -0.15 delta
+    // Find preselected strikes for Spreads based on Delta parameters and configurable Spread Width
+    const spreadLimitInput = document.getElementById("spreadLimitInput");
+    const targetWidth = parseFloat(spreadLimitInput ? spreadLimitInput.value : 1.0) || 1.0;
+
+    function findStrikeWithWidth(strikes, shortStrikeVal, width, direction, type) {
+      const targetStrikeVal = type === 'PUT' ? shortStrikeVal + (direction * width) : shortStrikeVal + (direction * width);
+      let closest = null;
+      let minDiff = Infinity;
+      for (const s of strikes) {
+        const val = parseFloat(s.strike);
+        const diff = Math.abs(val - targetStrikeVal);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = s;
+        }
+      }
+      return closest;
+    }
+
+    // Credit Put Spread (Bull Put): Sell -0.25 delta, Buy Put targetWidth below it
     const bpSellPut = findStrikeByDelta(data.strikes, -0.25, 'PUT');
-    const bpBuyPut = findStrikeByDelta(data.strikes, -0.15, 'PUT');
+    const bpBuyPut = bpSellPut ? findStrikeWithWidth(data.strikes, parseFloat(bpSellPut.strike), targetWidth, -1, 'PUT') : null;
 
-    // Credit Call Spread (Bear Call): Sell 0.25 delta, Buy 0.15 delta
+    // Credit Call Spread (Bear Call): Sell 0.25 delta, Buy Call targetWidth above it
     const bcSellCall = findStrikeByDelta(data.strikes, 0.25, 'CALL');
-    const bcBuyCall = findStrikeByDelta(data.strikes, 0.15, 'CALL');
+    const bcBuyCall = bcSellCall ? findStrikeWithWidth(data.strikes, parseFloat(bcSellCall.strike), targetWidth, 1, 'CALL') : null;
 
-    // Debit Call Spread (Bull Call): Buy 0.60 delta, Sell 0.40 delta
-    const dbBuyCall = findStrikeByDelta(data.strikes, 0.60, 'CALL');
-    const dbSellCall = findStrikeByDelta(data.strikes, 0.40, 'CALL');
+    // Debit Call Spread (Bull Call): Buy 0.50 delta (ATM), Sell Call targetWidth above it
+    const dbBuyCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
+    const dbSellCall = dbBuyCall ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyCall.strike), targetWidth, 1, 'CALL') : null;
 
-    // Debit Put Spread (Bear Put): Buy -0.60 delta, Sell -0.40 delta
-    const dbBuyPut = findStrikeByDelta(data.strikes, -0.60, 'PUT');
-    const dbSellPut = findStrikeByDelta(data.strikes, -0.40, 'PUT');
+    // Debit Put Spread (Bear Put): Buy -0.50 delta (ATM), Sell Put targetWidth below it
+    const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+    const dbSellPut = dbBuyPut ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyPut.strike), targetWidth, -1, 'PUT') : null;
 
     // Straddle (Breakout): Buy Call ~0.50, Buy Put ~-0.50
     const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
@@ -992,24 +1010,8 @@ window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk)
   const qtyInput = document.getElementById("orderQtyInput");
   const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
   
-  const spreadLimitInput = document.getElementById("spreadLimitInput");
-  const isCredit = premium.startsWith('+');
-  let rawPrem = parseFloat(spreadLimitInput ? spreadLimitInput.value : 0.0);
-  if (isNaN(rawPrem)) {
-    rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
-  }
-  const finalPriceSymbol = isCredit ? '+' : '-';
-  const premiumDisplay = `${finalPriceSymbol}$${rawPrem.toFixed(2)}`;
-  
-  const rawRiskOriginal = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
-  const rawPremOriginal = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
-  let estimatedRisk = rawRiskOriginal;
-  if (isCredit && rawPremOriginal > 0) {
-    const width = rawRiskOriginal + rawPremOriginal * 100;
-    estimatedRisk = Math.max(50, width - rawPrem * 100);
-  } else if (!isCredit) {
-    estimatedRisk = rawPrem * 100;
-  }
+  const rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
+  const rawRisk = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
   
   showHoverPanel(
     `Execute Spread Order`,
@@ -1019,11 +1021,10 @@ window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk)
         <strong>Asset:</strong> ${ticker} (${expiry})<br>
         <strong>Strikes:</strong> ${strikes}<br>
         <strong>Quantity:</strong> ${qty} contract(s)<br>
-        <strong>Limit Price per Spread:</strong> ${premiumDisplay} each<br>
-        <strong>Est Total Net Premium:</strong> ${finalPriceSymbol}$${Math.abs(rawPrem * 100 * qty).toFixed(2)}<br>
-        <strong>Collateral/Max Risk:</strong> $${(estimatedRisk * qty).toFixed(2)}
+        <strong>Est Net Premium:</strong> ${premium.startsWith('+') || premium.startsWith('-') ? premium[0] : ''}$${Math.abs(rawPrem * 100 * qty).toFixed(2)} ($${rawPrem.toFixed(2)} each)<br>
+        <strong>Collateral/Max Risk:</strong> $${(rawRisk * qty).toFixed(2)}
       </div>
-      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premiumDisplay}', '${expiry}', ${qty})">
+      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}', ${qty})">
         Transmit Spread Order
       </button>
     `
@@ -1868,6 +1869,12 @@ function initSpreadBudgets() {
       }
     });
   });
+
+  if (spreadLimitInput) {
+    spreadLimitInput.addEventListener("change", () => {
+      renderOptionChain();
+    });
+  }
 }
 
 
