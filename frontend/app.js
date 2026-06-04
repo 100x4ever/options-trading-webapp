@@ -1606,8 +1606,9 @@ function renderTechnicalChart(ticker, tab) {
     let currentMainChart = isWiz ? wizTechChart : posTechChart;
     if (currentMainChart) currentMainChart.destroy();
     
-    // Slice arrays to display only the last 40 bars (approx 1 week of 1h trading candles)
-    const sliceCount = 40;
+    // Dynamically set slice count based on viewport width
+    const isMobile = window.innerWidth <= 900;
+    const sliceCount = isMobile ? 20 : 40;
     const slicedTimestamps = data.timestamps.slice(-sliceCount);
     const slicedCloses = data.closes.slice(-sliceCount);
     const slicedOpens = data.opens.slice(-sliceCount);
