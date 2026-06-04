@@ -1698,7 +1698,12 @@ function renderTechnicalChart(ticker, tab) {
               minRotation: 0
             } 
           },
-          y: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)" } }
+          y: { 
+            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+            ticks: { color: "rgba(255,255,255,0.5)" },
+            min: Math.floor(Math.min(...data.lows) - ((Math.max(...data.highs) - Math.min(...data.lows)) * 0.05 || 2.0)),
+            max: Math.ceil(Math.max(...data.highs) + ((Math.max(...data.highs) - Math.min(...data.lows)) * 0.05 || 2.0))
+          }
         }
       }
     });
