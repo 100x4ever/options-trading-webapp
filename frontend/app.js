@@ -1606,7 +1606,20 @@ function renderTechnicalChart(ticker, tab) {
     let currentMainChart = isWiz ? wizTechChart : posTechChart;
     if (currentMainChart) currentMainChart.destroy();
     
-    const labels = data.timestamps.map(ts => {
+    // Slice arrays to display only the last 40 bars (approx 1 week of 1h trading candles)
+    const sliceCount = 40;
+    const slicedTimestamps = data.timestamps.slice(-sliceCount);
+    const slicedCloses = data.closes.slice(-sliceCount);
+    const slicedOpens = data.opens.slice(-sliceCount);
+    const slicedHighs = data.highs.slice(-sliceCount);
+    const slicedLows = data.lows.slice(-sliceCount);
+    const slicedHma = data.hma30.slice(-sliceCount);
+    const slicedSupertrend = data.supertrend.slice(-sliceCount);
+    const slicedSupertrendDir = data.supertrendDirection.slice(-sliceCount);
+    const slicedStoch14 = data.stoch14_4d.slice(-sliceCount);
+    const slicedStoch40 = data.stoch40_4d.slice(-sliceCount);
+
+    const labels = slicedTimestamps.map(ts => {
       const d = new Date(ts * 1000);
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
     });
@@ -1614,7 +1627,7 @@ function renderTechnicalChart(ticker, tab) {
     const supertrendSegmentColor = (ctx) => {
       if (ctx.type === 'section') return;
       const index = ctx.p1DataIndex;
-      const dir = data.supertrendDirection[index];
+      const dir = slicedSupertrendDir[index];
       return dir === 1 ? "#00e676" : "#ff2a5f";
     };
     
@@ -1624,9 +1637,9 @@ function renderTechnicalChart(ticker, tab) {
     const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
 
     // Setup candlestick bar coordinates
-    const colors = data.closes.map((c, i) => c >= data.opens[i] ? colorPositive : colorNegative);
-    const wicksData = data.closes.map((c, i) => [data.lows[i], data.highs[i]]);
-    const bodiesData = data.closes.map((c, i) => [data.opens[i], c]);
+    const colors = slicedCloses.map((c, i) => c >= slicedOpens[i] ? colorPositive : colorNegative);
+    const wicksData = slicedCloses.map((c, i) => [slicedLows[i], slicedHighs[i]]);
+    const bodiesData = slicedCloses.map((c, i) => [slicedOpens[i], c]);
 
     const newMainChart = new Chart(ctxMain, {
       type: "bar",
@@ -1640,7 +1653,7 @@ function renderTechnicalChart(ticker, tab) {
             backgroundColor: colors,
             borderColor: colors,
             borderWidth: 1,
-            barThickness: 8,
+            barThickness: 10,
             order: 2
           },
           {
@@ -1650,13 +1663,13 @@ function renderTechnicalChart(ticker, tab) {
             backgroundColor: colors,
             borderColor: colors,
             borderWidth: 1,
-            barThickness: 1.8,
+            barThickness: 2,
             order: 3
           },
           {
             type: "line",
             label: "30 HMA",
-            data: data.hma30,
+            data: slicedHma,
             borderColor: "#ffb800",
             borderWidth: 1.8,
             pointRadius: 0,
@@ -1667,7 +1680,7 @@ function renderTechnicalChart(ticker, tab) {
           {
             type: "line",
             label: "Supertrend",
-            data: data.supertrend,
+            data: slicedSupertrend,
             borderWidth: 2.5,
             pointRadius: 0,
             segment: {
@@ -1701,8 +1714,8 @@ function renderTechnicalChart(ticker, tab) {
           y: { 
             grid: { color: "rgba(255, 255, 255, 0.03)" }, 
             ticks: { color: "rgba(255,255,255,0.5)" },
-            min: Math.floor(Math.min(...data.lows) - ((Math.max(...data.highs) - Math.min(...data.lows)) * 0.05 || 2.0)),
-            max: Math.ceil(Math.max(...data.highs) + ((Math.max(...data.highs) - Math.min(...data.lows)) * 0.05 || 2.0))
+            min: Math.floor(Math.min(...slicedLows) - ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0)),
+            max: Math.ceil(Math.max(...slicedHighs) + ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0))
           }
         }
       }
@@ -1723,7 +1736,7 @@ function renderTechnicalChart(ticker, tab) {
         datasets: [
           {
             label: "Stoch (14, 4 %D)",
-            data: data.stoch14_4d,
+            data: slicedStoch14,
             borderColor: colorNegative,
             borderWidth: 1.5,
             pointRadius: 0,
@@ -1731,7 +1744,7 @@ function renderTechnicalChart(ticker, tab) {
           },
           {
             label: "Stoch (40, 4 %D)",
-            data: data.stoch40_4d,
+            data: slicedStoch40,
             borderColor: "#7000ff",
             borderWidth: 1.5,
             pointRadius: 0,
