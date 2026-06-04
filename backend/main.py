@@ -280,102 +280,206 @@ def get_alpaca_positions(username: str, profile: str):
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         positions = trading_client.get_all_positions()
         
-        pos_map = {pos.symbol: pos for pos in positions}
-        matched_symbols = set()
+        parsed_options = []
+        other_positions = []
         
-        formatted_positions = []
-        
-        # 1. Group multi-leg options matching active_trades templates
-        active_trades = profile_data.get("active_trades", [])
-        for trade in active_trades:
-            legs = trade.get("legs", [])
-            if not legs:
-                continue
-            
-            # Check if all legs are present in the current positions map
-            all_legs_present = True
-            for leg in legs:
-                if leg.get("symbol") not in pos_map:
-                    all_legs_present = False
-                    break
-            
-            if all_legs_present:
-                trade_pnl = 0.0
-                for leg in legs:
-                    leg_symbol = leg.get("symbol")
-                    leg_pos = pos_map[leg_symbol]
-                    trade_pnl += float(leg_pos.unrealized_pl)
-                    matched_symbols.add(leg_symbol)
-                
-                pnl_str = f"+${trade_pnl:.2f}" if trade_pnl >= 0 else f"-${abs(trade_pnl):.2f}"
-                expiry_str = trade.get("expiry", "")
-                exp_clean = expiry_str.split('(')[0].strip() if '(' in expiry_str else expiry_str
-                
-                formatted_positions.append({
-                    "ticker": trade.get("ticker", "").upper(),
-                    "type": trade.get("strategy", ""),
-                    "strike": trade.get("strike_str", ""),
-                    "exp": exp_clean,
-                    "qty": trade.get("qty", 1),
-                    "avg": f"{trade.get('entry_price', 0.0):.2f}",
-                    "mark": "-",
-                    "delta": "-",
-                    "theta": "-",
-                    "pnl": pnl_str,
-                    "status": "positive" if trade_pnl >= 0 else "negative"
-                })
-        
-        # 2. Append unmatched remaining positions individually
         for pos in positions:
-            if pos.symbol in matched_symbols:
-                continue
-                
             symbol = pos.symbol
             # Check if option contract formatting is e.g. AAPL260619C00185000
             match = re.match(r'^([A-Z]{1,6})(\d{6})([CP])(\d{8})$', symbol)
-            
             if match:
                 ticker, expiry_yymmdd, side_char, strike_raw = match.groups()
-                option_type = "Call" if side_char == "C" else "Put"
+                opt_type = "CALL" if side_char == "C" else "PUT"
                 strike_val = float(strike_raw) / 1000.0
+                qty = int(pos.qty)
+                side = "buy" if qty > 0 else "sell"
                 
-                # Expiry clean date e.g. Jun 19
-                exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
-                
-                pnl_val = float(pos.unrealized_pl)
-                pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
-                status = "positive" if pnl_val >= 0 else "negative"
-                
-                formatted_positions.append({
+                parsed_options.append({
+                    "pos": pos,
+                    "symbol": symbol,
                     "ticker": ticker,
-                    "type": option_type,
-                    "strike": f"{strike_val:.2f}",
-                    "exp": exp_clean,
-                    "qty": int(pos.qty),
-                    "avg": f"{float(pos.avg_entry_price):.2f}",
-                    "mark": f"{float(pos.current_price):.2f}",
-                    "delta": "+0.50" if option_type == "Call" else "-0.50",
-                    "theta": "-0.15",
-                    "pnl": pnl_str,
-                    "status": status
+                    "expiry_yymmdd": expiry_yymmdd,
+                    "type": opt_type,
+                    "strike": strike_val,
+                    "qty": abs(qty),
+                    "side": side,
+                    "unrealized_pl": float(pos.unrealized_pl),
+                    "avg_entry_price": float(pos.avg_entry_price),
+                    "current_price": float(pos.current_price)
                 })
             else:
-                # Stock position representation
-                pnl_val = float(pos.unrealized_pl)
-                pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
-                formatted_positions.append({
-                    "ticker": symbol,
-                    "type": "Stock",
-                    "strike": "-",
-                    "exp": "-",
-                    "qty": int(pos.qty),
-                    "avg": f"{float(pos.avg_entry_price):.2f}",
-                    "mark": f"{float(pos.current_price):.2f}",
-                    "delta": "1.00",
-                    "theta": "0.00",
-                    "pnl": pnl_str,
-                    "status": "positive" if pnl_val >= 0 else "negative"
-                })
+                other_positions.append(pos)
+                
+        # Group parsed options by (ticker, expiry_yymmdd)
+        groups = {}
+        for opt in parsed_options:
+            key = (opt["ticker"], opt["expiry_yymmdd"])
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(opt)
+            
+        formatted_positions = []
+        matched_symbols = set()
+        
+        for (ticker, expiry_yymmdd), legs in groups.items():
+            legs.sort(key=lambda x: x["strike"])
+            used_indices = set()
+            
+            # 1. Search for Iron Condors (2 Calls and 2 Puts, same qty, opposite sides)
+            i = 0
+            while i < len(legs):
+                if i in used_indices:
+                    i += 1
+                    continue
+                q = legs[i]["qty"]
+                
+                # Find all unused candidate legs with same quantity
+                candidates = [idx for idx, leg in enumerate(legs) if idx not in used_indices and leg["qty"] == q]
+                if len(candidates) >= 4:
+                    from itertools import combinations
+                    found_condor = False
+                    for comb in combinations(candidates, 4):
+                        comb_legs = [legs[idx] for idx in comb]
+                        puts = [l for l in comb_legs if l["type"] == "PUT"]
+                        calls = [l for l in comb_legs if l["type"] == "CALL"]
+                        if len(puts) == 2 and len(calls) == 2:
+                            # Check that each side has 1 buy and 1 sell
+                            if (puts[0]["side"] != puts[1]["side"]) and (calls[0]["side"] != calls[1]["side"]):
+                                puts.sort(key=lambda x: x["strike"])
+                                calls.sort(key=lambda x: x["strike"])
+                                
+                                short_put = puts[1] if puts[1]["side"] == "sell" else puts[0]
+                                long_put = puts[0] if puts[1]["side"] == "sell" else puts[1]
+                                
+                                short_call = calls[0] if calls[0]["side"] == "sell" else calls[1]
+                                long_call = calls[1] if calls[0]["side"] == "sell" else calls[0]
+                                
+                                strike_str = f"Sell {short_call['strike']:.2f}C/Buy {long_call['strike']:.2f}C + Sell {short_put['strike']:.2f}P/Buy {long_put['strike']:.2f}P"
+                                
+                                total_pnl = sum(l["unrealized_pl"] for l in comb_legs)
+                                pnl_str = f"+${total_pnl:.2f}" if total_pnl >= 0 else f"-${abs(total_pnl):.2f}"
+                                exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
+                                
+                                formatted_positions.append({
+                                    "ticker": ticker,
+                                    "type": "Iron Condor",
+                                    "strike": strike_str,
+                                    "exp": exp_clean,
+                                    "qty": q,
+                                    "avg": "-",
+                                    "mark": "-",
+                                    "delta": "-",
+                                    "theta": "-",
+                                    "pnl": pnl_str,
+                                    "status": "positive" if total_pnl >= 0 else "negative"
+                                })
+                                
+                                for idx in comb:
+                                    used_indices.add(idx)
+                                    matched_symbols.add(legs[idx]["symbol"])
+                                found_condor = True
+                                break
+                    if found_condor:
+                        continue
+                i += 1
+                
+            # 2. Search for Vertical Spreads (2 legs of same type, opposite sides, same qty)
+            i = 0
+            while i < len(legs):
+                if i in used_indices:
+                    i += 1
+                    continue
+                q = legs[i]["qty"]
+                t = legs[i]["type"]
+                s = legs[i]["side"]
+                
+                found_match = False
+                for j in range(i + 1, len(legs)):
+                    if j in used_indices:
+                        continue
+                    if legs[j]["qty"] == q and legs[j]["type"] == t and legs[j]["side"] != s:
+                        leg1 = legs[i]
+                        leg2 = legs[j]
+                        
+                        buy_leg = leg1 if leg1["side"] == "buy" else leg2
+                        sell_leg = leg1 if leg1["side"] == "sell" else leg2
+                        
+                        if t == "CALL":
+                            strat_name = "Bull Call Spread" if buy_leg["strike"] < sell_leg["strike"] else "Bear Call Spread"
+                            strike_str = f"Buy {buy_leg['strike']:.2f}C / Sell {sell_leg['strike']:.2f}C"
+                        else:
+                            strat_name = "Bear Put Spread" if buy_leg["strike"] > sell_leg["strike"] else "Bull Put Spread"
+                            strike_str = f"Sell {sell_leg['strike']:.2f}P / Buy {buy_leg['strike']:.2f}P"
+                            
+                        total_pnl = leg1["unrealized_pl"] + leg2["unrealized_pl"]
+                        pnl_str = f"+${total_pnl:.2f}" if total_pnl >= 0 else f"-${abs(total_pnl):.2f}"
+                        exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
+                        
+                        formatted_positions.append({
+                            "ticker": ticker,
+                            "type": strat_name,
+                            "strike": strike_str,
+                            "exp": exp_clean,
+                            "qty": q,
+                            "avg": "-",
+                            "mark": "-",
+                            "delta": "-",
+                            "theta": "-",
+                            "pnl": pnl_str,
+                            "status": "positive" if total_pnl >= 0 else "negative"
+                        })
+                        
+                        used_indices.add(i)
+                        used_indices.add(j)
+                        matched_symbols.add(leg1["symbol"])
+                        matched_symbols.add(leg2["symbol"])
+                        found_match = True
+                        break
+                if found_match:
+                    continue
+                i += 1
+                
+            # 3. Remaining individual options
+            for idx, leg in enumerate(legs):
+                if idx not in used_indices:
+                    pos = leg["pos"]
+                    strike_val = leg["strike"]
+                    exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
+                    pnl_val = leg["unrealized_pl"]
+                    pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
+                    
+                    formatted_positions.append({
+                        "ticker": ticker,
+                        "type": "Call" if leg["type"] == "CALL" else "Put",
+                        "strike": f"{strike_val:.2f}",
+                        "exp": exp_clean,
+                        "qty": int(pos.qty),
+                        "avg": f"{leg['avg_entry_price']:.2f}",
+                        "mark": f"{leg['current_price']:.2f}",
+                        "delta": "+0.50" if leg["type"] == "CALL" else "-0.50",
+                        "theta": "-0.15",
+                        "pnl": pnl_str,
+                        "status": "positive" if pnl_val >= 0 else "negative"
+                    })
+                    
+        # 4. Append Stock positions
+        for pos in other_positions:
+            pnl_val = float(pos.unrealized_pl)
+            pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
+            formatted_positions.append({
+                "ticker": pos.symbol,
+                "type": "Stock",
+                "strike": "-",
+                "exp": "-",
+                "qty": int(pos.qty),
+                "avg": f"{float(pos.avg_entry_price):.2f}",
+                "mark": f"{float(pos.current_price):.2f}",
+                "delta": "1.00",
+                "theta": "0.00",
+                "pnl": pnl_str,
+                "status": "positive" if pnl_val >= 0 else "negative"
+            })
+            
         return formatted_positions
     except Exception:
         return []
