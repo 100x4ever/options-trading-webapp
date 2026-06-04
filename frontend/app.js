@@ -886,6 +886,11 @@ function drawWizPnlChart(curveType) {
   
   ctx.clearRect(0, 0, width, height);
 
+  // Retrieve computed color values for CSS variables
+  const computedStyle = getComputedStyle(document.documentElement);
+  const colorPositive = computedStyle.getPropertyValue('--accent-positive').trim() || "#00e676";
+  const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
+
   // Draw axis background lines
   ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
   ctx.lineWidth = 1;
@@ -909,10 +914,10 @@ function drawWizPnlChart(curveType) {
 
   if (curveType === "bull_call_spread" || curveType === "bull_put_spread") {
     // Bullish S-curve
-    gradient.addColorStop(0, "var(--accent-negative)");
-    gradient.addColorStop(0.4, "var(--accent-negative)");
-    gradient.addColorStop(0.6, "var(--accent-positive)");
-    gradient.addColorStop(1, "var(--accent-positive)");
+    gradient.addColorStop(0, colorNegative);
+    gradient.addColorStop(0.4, colorNegative);
+    gradient.addColorStop(0.6, colorPositive);
+    gradient.addColorStop(1, colorPositive);
 
     ctx.moveTo(0, zeroY + 45);
     ctx.lineTo(width * 0.35, zeroY + 45);
@@ -921,10 +926,10 @@ function drawWizPnlChart(curveType) {
   } 
   else if (curveType === "bear_put_spread" || curveType === "bear_call_spread") {
     // Bearish S-curve
-    gradient.addColorStop(0, "var(--accent-positive)");
-    gradient.addColorStop(0.4, "var(--accent-positive)");
-    gradient.addColorStop(0.6, "var(--accent-negative)");
-    gradient.addColorStop(1, "var(--accent-negative)");
+    gradient.addColorStop(0, colorPositive);
+    gradient.addColorStop(0.4, colorPositive);
+    gradient.addColorStop(0.6, colorNegative);
+    gradient.addColorStop(1, colorNegative);
 
     ctx.moveTo(0, zeroY - 45);
     ctx.lineTo(width * 0.35, zeroY - 45);
@@ -933,10 +938,10 @@ function drawWizPnlChart(curveType) {
   }
   else if (curveType === "iron_condor") {
     // Rangebound trapezoid (max profit in middle)
-    gradient.addColorStop(0, "var(--accent-negative)");
-    gradient.addColorStop(0.3, "var(--accent-positive)");
-    gradient.addColorStop(0.7, "var(--accent-positive)");
-    gradient.addColorStop(1, "var(--accent-negative)");
+    gradient.addColorStop(0, colorNegative);
+    gradient.addColorStop(0.3, colorPositive);
+    gradient.addColorStop(0.7, colorPositive);
+    gradient.addColorStop(1, colorNegative);
 
     ctx.moveTo(0, zeroY + 40);
     ctx.lineTo(width * 0.25, zeroY + 40);
@@ -947,9 +952,9 @@ function drawWizPnlChart(curveType) {
   }
   else if (curveType === "straddle") {
     // V-shaped curve (max loss in middle)
-    gradient.addColorStop(0, "var(--accent-positive)");
-    gradient.addColorStop(0.5, "var(--accent-negative)");
-    gradient.addColorStop(1, "var(--accent-positive)");
+    gradient.addColorStop(0, colorPositive);
+    gradient.addColorStop(0.5, colorNegative);
+    gradient.addColorStop(1, colorPositive);
 
     ctx.moveTo(0, zeroY - 50);
     ctx.lineTo(width * 0.5, zeroY + 40);
