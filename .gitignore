@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+profiles_db.json
+.vscode/
+.idea/

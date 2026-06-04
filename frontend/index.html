@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AuraTrade | Premium Options Dashboard</title>
+  <!-- Google Fonts: Outfit for titles, Inter for UI text -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js for smooth charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- LAYER 1: Lava Lamp (Bottom Layer) -->
+  <div class="lavalamp-container" id="lavalampContainer">
+    <div class="blob blob1" id="blob1"></div>
+    <div class="blob blob2" id="blob2"></div>
+    <div class="blob blob3" id="blob3"></div>
+    <div class="blob blob4" id="blob4"></div>
+  </div>
+
+  <!-- SVG Filter for the metaball/lava-lamp blending effect -->
+  <svg xmlns="http://www.w3.org/2000/svg" version="1.1" style="display:none;">
+    <defs>
+      <filter id="goo">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="40" result="blur" />
+        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 80 -25" result="goo" />
+        <feBlend in="SourceGraphic" in2="goo" />
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- LAYER 3: Auth Login/Signup Card (Top Layer Overlaid) -->
+  <div class="auth-container" id="authContainer">
+    <div class="glass-card auth-card">
+      <div class="logo-area" style="justify-content: center; margin-bottom: 24px;">
+        <div class="logo-icon">▲</div>
+        <h2>AuraTrade</h2>
+      </div>
+      <h3 id="authTitle" style="text-align: center; margin-bottom: 20px; font-family: var(--font-family-title);">Welcome Back</h3>
+      
+      <div class="setting-item">
+        <label for="authUsername">Username</label>
+        <input type="text" id="authUsername" placeholder="Enter username...">
+      </div>
+
+      <div class="setting-item" style="margin-bottom: 24px;">
+        <label for="authPassword">Password</label>
+        <input type="password" id="authPassword" placeholder="Enter password...">
+      </div>
+
+      <button id="authSubmitBtn" class="primary-btn">Log In</button>
+      
+      <p class="auth-toggle-text" style="text-align: center; margin-top: 18px; font-size: 13px; color: var(--text-secondary);">
+        Don't have an account? <span id="authToggleBtn" style="color: var(--accent-neutral); cursor: pointer; font-weight: 600;">Sign Up</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- LAYER 2: Main Application Dashboard -->
+  <div class="app-layout" id="appLayout" style="display: none;">
+    
+    <!-- Sidebar (Frosted Glass) -->
+    <aside class="sidebar glass-card" id="sidebar">
+      <div class="logo-area">
+        <div class="logo-icon">▲</div>
+        <h2>AuraTrade</h2>
+      </div>
+      
+      <div class="profile-selector-container">
+        <label for="profileSelect">Active Profile</label>
+        <select id="profileSelect" class="profile-select">
+          <!-- Dynamic options populated by JS -->
+        </select>
+      </div>
+
+      <nav class="nav-links">
+        <button class="nav-btn active" data-tab="dashboard" id="nav-dashboard">
+          <i data-lucide="layout-dashboard"></i> Dashboard
+        </button>
+        <button class="nav-btn" data-tab="wizard" id="nav-wizard">
+          <i data-lucide="compass"></i> Strategy Wizard
+        </button>
+        <button class="nav-btn" data-tab="positions" id="nav-positions">
+          <i data-lucide="line-chart"></i> Positions
+        </button>
+        <button class="nav-btn" data-tab="options" id="nav-options">
+          <i data-lucide="activity"></i> Option Chain
+        </button>
+        <button class="nav-btn" data-tab="config" id="nav-config">
+          <i data-lucide="sliders"></i> Setup & Themes
+        </button>
+        <button class="nav-btn" id="logoutBtn" style="margin-top: auto; color: var(--accent-negative);">
+          <i data-lucide="log-out"></i> Log Out
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="alpaca-status connected" id="alpacaStatus">
+          <span class="status-indicator"></span>
+          <span class="status-text">Alpaca Sandbox</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Container -->
+    <main class="main-content">
+      
+      <!-- TAB: DASHBOARD -->
+      <section class="tab-content active" id="tab-dashboard">
+        <header class="tab-header">
+          <h1>Dashboard Overview</h1>
+          <p>Real-time options portfolio metrics and performance tracker.</p>
+        </header>
+
+        <div class="metrics-grid">
+          <div class="glass-card metric-card hover-trigger" data-tooltip="Total valuation of cash + options holdings">
+            <span class="metric-label">Net Asset Value</span>
+            <span class="metric-value" id="navValue">$124,582.40</span>
+            <span class="metric-change positive">+4.2% today</span>
+          </div>
+          <div class="glass-card metric-card hover-trigger" data-tooltip="Total cash available for buying options">
+            <span class="metric-label">Buying Power</span>
+            <span class="metric-value" id="buyingPower">$48,290.15</span>
+            <span class="metric-change">Options Leverage 1.0x</span>
+          </div>
+          <div class="glass-card metric-card hover-trigger" data-tooltip="Consolidated Delta exposure of the portfolio">
+            <span class="metric-label">Portfolio Delta (β)</span>
+            <span class="metric-value positive" id="portfolioDelta">+42.85</span>
+            <span class="metric-change">Bullish bias</span>
+          </div>
+          <div class="glass-card metric-card hover-trigger" data-tooltip="Estimated daily time decay of your options holdings">
+            <span class="metric-label">Portfolio Theta (θ)</span>
+            <span class="metric-value negative" id="portfolioTheta">-$184.20</span>
+            <span class="metric-change">Daily decay rate</span>
+          </div>
+        </div>
+
+        <div class="dashboard-charts-grid">
+          <div class="glass-card chart-card">
+            <h3>Performance History</h3>
+            <div class="chart-container">
+              <canvas id="performanceChart"></canvas>
+            </div>
+          </div>
+          <div class="glass-card positions-summary-card">
+            <h3>Active Strategy Spreads</h3>
+            <div class="strategy-list" id="strategySummary">
+              <!-- Populate dynamically -->
+            </div>
+          </div>
+        </div>
+
+        <!-- BEST BETS SCREENER WIDGET -->
+        <div class="glass-card best-bets-card" style="margin-top: 20px; padding: 24px;">
+          <div class="best-bets-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h3 style="font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <i data-lucide="award" style="color: var(--accent-neutral);"></i> Best Bets & Screener (QQQ 10DTE)
+              </h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Top-rated spreads based on risk-reward profiles and win probability.</p>
+            </div>
+            <span class="strategy-badge" style="margin-bottom: 0; padding: 6px 12px; font-size: 11px;">10 Days Out</span>
+          </div>
+          <div class="best-bets-grid" id="bestBetsContainer">
+            <!-- Dynamically populated bets -->
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: STRATEGY WIZARD -->
+      <section class="tab-content" id="tab-wizard">
+        <header class="tab-header">
+          <h1>Strategy Wizard</h1>
+          <p>Translate your market thesis into a high-probability options trade layout.</p>
+        </header>
+
+        <div class="wizard-layout-grid">
+          <!-- Left Panel: Form Inputs -->
+          <div class="glass-card wizard-form-card">
+            <h3>Configure Your Thesis</h3>
+            
+            <div class="setting-item">
+              <label for="wizTicker">Target Asset Ticker</label>
+              <input type="text" id="wizTicker" value="AAPL" placeholder="AAPL, TSLA, SPY...">
+            </div>
+
+            <div class="setting-item">
+              <label>1. Direction: What is your price prediction?</label>
+              <div class="wiz-btn-group" id="wizDirectionGroup">
+                <button class="wiz-select-btn active" data-val="up">📈 Price Goes Up</button>
+                <button class="wiz-select-btn" data-val="down">📉 Price Goes Down</button>
+                <button class="wiz-select-btn" data-val="sideways">↔ Sideways / Range</button>
+                <button class="wiz-select-btn" data-val="breakout">⚡ Big Move Either Way</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <label>2. Speed / Volatility: How will it move?</label>
+              <div class="wiz-btn-group" id="wizSpeedGroup">
+                <button class="wiz-select-btn active" data-val="fast">🚀 Fast & Violent</button>
+                <button class="wiz-select-btn" data-val="slow">🐢 Slow & Steady</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <label for="wizDate">3. Target Expiration Date</label>
+              <select id="wizDate">
+                <option value="7">Next Friday (7 Days)</option>
+                <option value="14">Two Weeks (14 Days)</option>
+                <option value="42">Monthly Cycle (42 Days)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Right Panel: Recommendation Card -->
+          <div class="glass-card wizard-rec-card">
+            <h3>Recommended Strategy</h3>
+            <div class="strategy-badge" id="recStrategyName">Bull Call Debit Spread</div>
+            
+            <div class="rec-explainer">
+              <h4 style="margin-bottom: 8px; color: var(--accent-neutral);">Plain-English Explanation</h4>
+              <p id="recExplainerText">Guiding explanation text loads here...</p>
+            </div>
+
+            <div class="chart-container" style="height: 180px; margin-top: 16px;">
+              <canvas id="wizPnlChart"></canvas>
+            </div>
+
+            <div class="wiz-stats-row" style="display: flex; justify-content: space-between; margin-top: 16px; font-size: 13px;">
+              <div><strong>Max Profit:</strong> <span id="wizMaxProfit" class="positive">$150</span></div>
+              <div><strong>Max Loss:</strong> <span id="wizMaxLoss" class="negative">$100</span></div>
+              <div><strong>Prob. of Profit:</strong> <span id="wizWinProb" style="color: var(--accent-neutral);">55%</span></div>
+            </div>
+
+            <button class="primary-btn" id="loadWizOrderBtn" style="margin-top: 20px;">
+              Load Into Order Builder
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: POSITIONS -->
+      <section class="tab-content" id="tab-positions">
+        <header class="tab-header">
+          <h1>Current Positions</h1>
+          <p>Track your active options contracts, Greeks, and PnL metrics.</p>
+        </header>
+
+        <div class="glass-card table-card">
+          <table class="positions-table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Type</th>
+                <th>Strike</th>
+                <th>Exp</th>
+                <th>Qty</th>
+                <th>Avg Price</th>
+                <th>Mark</th>
+                <th>Delta</th>
+                <th>Theta</th>
+                <th>PnL</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTableBody">
+              <!-- Populate dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- TAB: OPTION CHAIN -->
+      <section class="tab-content" id="tab-options">
+        <header class="tab-header">
+          <h1>Option Chain Builder</h1>
+          <p>Analyze strikes, premiums, and execute trades instantly via Alpaca sandbox.</p>
+        </header>
+
+        <div class="options-controls glass-card">
+          <div class="control-group">
+            <label for="underlyingTicker">Underlying Ticker</label>
+            <div class="ticker-input-wrapper">
+              <input type="text" id="underlyingTicker" value="AAPL" placeholder="AAPL, TSLA, SPY...">
+              <button id="fetchChainBtn">Load Chain</button>
+            </div>
+          </div>
+          <div class="control-group">
+            <label for="expirationSelect">Expiration Date</label>
+            <select id="expirationSelect">
+              <!-- Populate dynamically -->
+            </select>
+          </div>
+        </div>
+
+        <div class="options-view-layout">
+          <!-- Calls Table -->
+          <div class="glass-card chain-table-container">
+            <h3 class="calls-header">CALLS</h3>
+            <table class="chain-table">
+              <thead>
+                <tr>
+                  <th>Bid</th>
+                  <th>Ask</th>
+                  <th>Delta</th>
+                  <th>Strike</th>
+                </tr>
+              </thead>
+              <tbody id="callsTableBody">
+                <!-- Populate dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Puts Table -->
+          <div class="glass-card chain-table-container">
+            <h3 class="puts-header">PUTS</h3>
+            <table class="chain-table">
+              <thead>
+                <tr>
+                  <th>Strike</th>
+                  <th>Delta</th>
+                  <th>Bid</th>
+                  <th>Ask</th>
+                </tr>
+              </thead>
+              <tbody id="putsTableBody">
+                <!-- Populate dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: CONFIGURATION -->
+      <section class="tab-content" id="tab-config">
+        <header class="tab-header">
+          <h1>Setup & Theme Customizer</h1>
+          <p>Real-time styling adjustments, user portfolio customization, and API integration settings.</p>
+        </header>
+
+        <div class="config-grid">
+          <!-- Card Settings -->
+          <div class="glass-card config-card">
+            <h3><i data-lucide="paint-format"></i> Frosted Glass Cards (Main Layer)</h3>
+            
+            <div class="setting-item">
+              <label for="glassColor">Card Overlay Color</label>
+              <input type="color" id="glassColor" value="#121520">
+            </div>
+
+            <div class="setting-item">
+              <label for="glassOpacity">Card Opacity: <span id="opacityVal">0.45</span></label>
+              <input type="range" id="glassOpacity" min="0.1" max="0.9" step="0.05" value="0.45">
+            </div>
+
+            <div class="setting-item">
+              <label for="glassBlur">Card Blur Strength: <span id="blurVal">20px</span></label>
+              <input type="range" id="glassBlur" min="0" max="40" step="1" value="20">
+            </div>
+
+            <div class="setting-item">
+              <label for="glassBorderOpacity">Border Opacity: <span id="borderVal">0.15</span></label>
+              <input type="range" id="glassBorderOpacity" min="0" max="0.5" step="0.05" value="0.15">
+            </div>
+          </div>
+
+          <!-- Lava Lamp Settings -->
+          <div class="glass-card config-card">
+            <h3><i data-lucide="sparkles"></i> Lava Lamp Background (Bottom Layer)</h3>
+            
+            <div class="setting-item">
+              <label for="blobColor1">Blob 1 Color</label>
+              <input type="color" id="blobColor1" value="#ff2a5f">
+            </div>
+
+            <div class="setting-item">
+              <label for="blobColor2">Blob 2 Color</label>
+              <input type="color" id="blobColor2" value="#00f0ff">
+            </div>
+
+            <div class="setting-item">
+              <label for="blobColor3">Blob 3 Color</label>
+              <input type="color" id="blobColor3" value="#7000ff">
+            </div>
+
+            <div class="setting-item">
+              <label for="blobColor4">Blob 4 Color</label>
+              <input type="color" id="blobColor4" value="#ffb800">
+            </div>
+
+            <div class="setting-item">
+              <label for="lampSpeed">Animation Speed multiplier: <span id="speedVal">1.0</span></label>
+              <input type="range" id="lampSpeed" min="0.1" max="3.0" step="0.1" value="1.0">
+            </div>
+          </div>
+
+          <!-- Account Settings -->
+          <div class="glass-card config-card">
+            <h3><i data-lucide="key-round"></i> Alpaca Credentials</h3>
+            
+            <div class="setting-item">
+              <label for="alpacaApiKey">Alpaca API Key ID</label>
+              <input type="password" id="alpacaApiKey" placeholder="AK... (Sandbox or Live)">
+            </div>
+
+            <div class="setting-item">
+              <label for="alpacaSecretKey">Alpaca Secret Key</label>
+              <input type="password" id="alpacaSecretKey" placeholder="Secret Key">
+            </div>
+
+            <div class="setting-item checkbox-item">
+              <input type="checkbox" id="alpacaLive" class="custom-checkbox">
+              <label for="alpacaLive">Enable Live Trading (Default is Sandbox)</label>
+            </div>
+
+            <div class="btn-group">
+              <button id="saveConfigBtn" class="primary-btn">Save Configurations</button>
+            </div>
+          </div>
+
+          <!-- Profile Settings -->
+          <div class="glass-card config-card">
+            <h3><i data-lucide="users"></i> Manage Profiles</h3>
+            
+            <div class="setting-item">
+              <label for="newProfileName">Create New Profile</label>
+              <div class="input-action-wrapper">
+                <input type="text" id="newProfileName" placeholder="e.g., Aggressive Options">
+                <button id="addProfileBtn" class="secondary-btn">Add</button>
+              </div>
+            </div>
+
+            <div class="setting-item">
+              <label>Existing Profiles</label>
+              <div class="profile-badge-list" id="profileBadgeList">
+                <!-- Dynamically populated badge list -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- LAYER 3: Floating / Hover Tooltip (Top Layer) -->
+  <div class="hover-info-panel" id="hoverInfoPanel">
+    <div class="panel-header">
+      <span class="panel-title" id="hoverTitle">Quick Info</span>
+      <span class="panel-close" id="hoverCloseBtn">&times;</span>
+    </div>
+    <div class="panel-body" id="hoverBody">
+      Hover over elements to see definitions and instructions.
+    </div>
+  </div>
+
+  <!-- Load script files -->
+  <script src="lavalamp.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
