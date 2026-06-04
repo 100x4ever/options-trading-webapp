@@ -280,9 +280,56 @@ def get_alpaca_positions(username: str, profile: str):
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         positions = trading_client.get_all_positions()
         
+        pos_map = {pos.symbol: pos for pos in positions}
+        matched_symbols = set()
+        
         formatted_positions = []
+        
+        # 1. Group multi-leg options matching active_trades templates
+        active_trades = profile_data.get("active_trades", [])
+        for trade in active_trades:
+            legs = trade.get("legs", [])
+            if not legs:
+                continue
+            
+            # Check if all legs are present in the current positions map
+            all_legs_present = True
+            for leg in legs:
+                if leg.get("symbol") not in pos_map:
+                    all_legs_present = False
+                    break
+            
+            if all_legs_present:
+                trade_pnl = 0.0
+                for leg in legs:
+                    leg_symbol = leg.get("symbol")
+                    leg_pos = pos_map[leg_symbol]
+                    trade_pnl += float(leg_pos.unrealized_pl)
+                    matched_symbols.add(leg_symbol)
+                
+                pnl_str = f"+${trade_pnl:.2f}" if trade_pnl >= 0 else f"-${abs(trade_pnl):.2f}"
+                expiry_str = trade.get("expiry", "")
+                exp_clean = expiry_str.split('(')[0].strip() if '(' in expiry_str else expiry_str
+                
+                formatted_positions.append({
+                    "ticker": trade.get("ticker", "").upper(),
+                    "type": trade.get("strategy", ""),
+                    "strike": trade.get("strike_str", ""),
+                    "exp": exp_clean,
+                    "qty": trade.get("qty", 1),
+                    "avg": f"{trade.get('entry_price', 0.0):.2f}",
+                    "mark": "-",
+                    "delta": "-",
+                    "theta": "-",
+                    "pnl": pnl_str,
+                    "status": "positive" if trade_pnl >= 0 else "negative"
+                })
+        
+        # 2. Append unmatched remaining positions individually
         for pos in positions:
-            # Check if asset class is option or parsing option symbol
+            if pos.symbol in matched_symbols:
+                continue
+                
             symbol = pos.symbol
             # Check if option contract formatting is e.g. AAPL260619C00185000
             match = re.match(r'^([A-Z]{1,6})(\d{6})([CP])(\d{8})$', symbol)
