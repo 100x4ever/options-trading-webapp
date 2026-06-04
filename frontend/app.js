@@ -176,7 +176,15 @@ function initAuthForm() {
 function loadUserProfile(username) {
   fetch(`/api/profiles?username=${encodeURIComponent(username)}`)
   .then(res => {
-    if (!res.ok) throw new Error("Could not load user data");
+    if (!res.ok) {
+      if (res.status === 404) {
+        // User session invalid/deleted on backend
+        localStorage.removeItem("auratrade_user");
+        currentUser = null;
+        showAuthScreen();
+      }
+      throw new Error("Could not load user data");
+    }
     return res.json();
   })
   .then(data => {
@@ -187,8 +195,11 @@ function loadUserProfile(username) {
   })
   .catch(err => {
     console.error(err);
-    // Offline / fallback state
-    hideAuthScreen();
+    if (!currentUser) {
+      showAuthScreen();
+    } else {
+      hideAuthScreen();
+    }
   });
 }
 
@@ -292,6 +303,9 @@ function initThemeSliders() {
         indicator.style.boxShadow = "0 0 8px #00e676";
         showHoverPanel("Config Saved", "Theme and credentials saved successfully for " + state.activeProfile);
       }, 600);
+    })
+    .catch(err => {
+      alert("Error saving configuration: " + err.message);
     });
   });
 }
@@ -735,14 +749,14 @@ window.executeTrade = function(ticker, type, strike, price) {
 // Sync configuration state to server backend
 async function saveStateToBackend() {
   if (!currentUser) return;
-  try {
-    await fetch(`/api/profiles?username=${encodeURIComponent(currentUser)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state)
-    });
-  } catch (err) {
-    console.warn("Backend connection offline, configurations saved locally.", err);
+  const res = await fetch(`/api/profiles?username=${encodeURIComponent(currentUser)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(state)
+  });
+  if (!res.ok) {
+    const errData = await res.json();
+    throw new Error(errData.detail || "Failed to save configuration to backend.");
   }
 }
 
