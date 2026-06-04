@@ -1053,12 +1053,12 @@ body {
 
   /* 1. App Layout Re-stacking */
   .app-layout {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    max-width: 100%;
-    height: auto;
-    overflow-x: hidden;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow-x: hidden !important;
   }
 
   /* 2. Sidebar to Mobile Top Header Navigation */
