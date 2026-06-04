@@ -97,6 +97,7 @@ function hideAuthScreen() {
   // Bind options chain triggers
   const fetchChainBtn = document.getElementById("fetchChainBtn");
   const expirationSelect = document.getElementById("expirationSelect");
+  const toggleChainModeBtn = document.getElementById("toggleChainModeBtn");
   
   if (fetchChainBtn && !fetchChainBtn.dataset.bound) {
     fetchChainBtn.addEventListener("click", renderOptionChain);
@@ -105,6 +106,22 @@ function hideAuthScreen() {
   if (expirationSelect && !expirationSelect.dataset.bound) {
     expirationSelect.addEventListener("change", renderOptionChain);
     expirationSelect.dataset.bound = "true";
+  }
+  if (toggleChainModeBtn && !toggleChainModeBtn.dataset.bound) {
+    toggleChainModeBtn.addEventListener("click", () => {
+      const grid = document.getElementById("chainStrategiesGrid");
+      const raw = document.getElementById("rawChainContainer");
+      if (grid.style.display === "none") {
+        grid.style.display = "grid";
+        raw.style.display = "none";
+        toggleChainModeBtn.textContent = "Show Raw Chain";
+      } else {
+        grid.style.display = "none";
+        raw.style.display = "flex";
+        toggleChainModeBtn.textContent = "Show Strategies";
+      }
+    });
+    toggleChainModeBtn.dataset.bound = "true";
   }
 }
 
@@ -647,12 +664,29 @@ function renderPositions() {
   });
 }
 
+function findStrikeByDelta(strikes, targetDelta, type) {
+  if (!strikes || strikes.length === 0) return null;
+  let closest = null;
+  let minDiff = Infinity;
+  for (const s of strikes) {
+    const delta = parseFloat(type === 'CALL' ? s.callDelta : s.putDelta);
+    if (isNaN(delta)) continue;
+    const diff = Math.abs(delta - targetDelta);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = s;
+    }
+  }
+  return closest;
+}
+
 function renderOptionChain() {
   const tickerInput = document.getElementById("underlyingTicker");
   const ticker = tickerInput ? tickerInput.value.trim().toUpperCase() : "AAPL";
   const callsBody = document.getElementById("callsTableBody");
   const putsBody = document.getElementById("putsTableBody");
-  if(!callsBody || !putsBody) return;
+  const strategiesGrid = document.getElementById("chainStrategiesGrid");
+  if(!callsBody || !putsBody || !strategiesGrid) return;
 
   const expirySelect = document.getElementById("expirationSelect");
   
@@ -669,6 +703,7 @@ function renderOptionChain() {
   // Show loading indicators
   callsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">Loading calls...</td></tr>`;
   putsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">Loading puts...</td></tr>`;
+  strategiesGrid.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 24px; grid-column: span 3;">Generating optimal option spread setups...</div>`;
 
   fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiry)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
@@ -682,9 +717,11 @@ function renderOptionChain() {
     if (!data.strikes || data.strikes.length === 0) {
       callsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">No contracts found for ${data.ticker}.</td></tr>`;
       putsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">No contracts found for ${data.ticker}.</td></tr>`;
+      strategiesGrid.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 24px; grid-column: span 3;">No spreads could be calculated.</div>`;
       return;
     }
 
+    // Render Raw Chain
     callsBody.innerHTML = data.strikes.map(s => `
       <tr class="trade-row" onclick="selectStrike('CALL', '${s.strike}', '${s.callAsk}')">
         <td>$${s.callBid}</td>
@@ -702,51 +739,279 @@ function renderOptionChain() {
         <td>$${s.putAsk}</td>
       </tr>
     `).join("");
+
+    // Find preselected strikes for Spreads based on Delta parameters
+    // Credit Put Spread (Bull Put): Sell -0.25 delta, Buy -0.15 delta
+    const bpSellPut = findStrikeByDelta(data.strikes, -0.25, 'PUT');
+    const bpBuyPut = findStrikeByDelta(data.strikes, -0.15, 'PUT');
+
+    // Credit Call Spread (Bear Call): Sell 0.25 delta, Buy 0.15 delta
+    const bcSellCall = findStrikeByDelta(data.strikes, 0.25, 'CALL');
+    const bcBuyCall = findStrikeByDelta(data.strikes, 0.15, 'CALL');
+
+    // Debit Call Spread (Bull Call): Buy 0.60 delta, Sell 0.40 delta
+    const dbBuyCall = findStrikeByDelta(data.strikes, 0.60, 'CALL');
+    const dbSellCall = findStrikeByDelta(data.strikes, 0.40, 'CALL');
+
+    // Debit Put Spread (Bear Put): Buy -0.60 delta, Sell -0.40 delta
+    const dbBuyPut = findStrikeByDelta(data.strikes, -0.60, 'PUT');
+    const dbSellPut = findStrikeByDelta(data.strikes, -0.40, 'PUT');
+
+    // Straddle (Breakout): Buy Call ~0.50, Buy Put ~-0.50
+    const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
+    const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+
+    const cards = [];
+
+    // 1. Bull Put Spread Card
+    if (bpSellPut && bpBuyPut) {
+      const sellPutPrem = parseFloat(bpSellPut.putBid);
+      const buyPutPrem = parseFloat(bpBuyPut.putAsk);
+      const netCredit = Math.max(0.05, sellPutPrem - buyPutPrem);
+      const width = Math.abs(parseFloat(bpSellPut.strike) - parseFloat(bpBuyPut.strike));
+      const collateral = width * 100;
+      const maxProfit = netCredit * 100;
+      const maxRisk = Math.max(5, (width - netCredit) * 100);
+      const winProb = Math.round((1 - Math.abs(parseFloat(bpSellPut.putDelta))) * 100);
+
+      cards.push({
+        title: "Bull Put Credit Spread",
+        type: "Bull Put Spread",
+        strikes: `Sell ${bpSellPut.strike}P / Buy ${bpBuyPut.strike}P ($${width.toFixed(2)} wide)`,
+        desc: "Bullish to neutral. Earn credit from time decay. Max profit is achieved if stock stays above the short put strike.",
+        winProb: `${winProb}%`,
+        maxProfit: `$${maxProfit.toFixed(2)}`,
+        maxLoss: `$${maxRisk.toFixed(2)}`,
+        premium: `+$${netCredit.toFixed(2)}`,
+        collateral: `$${collateral.toFixed(0)}`,
+        legs: `Sell ${bpSellPut.strike}P / Buy ${bpBuyPut.strike}P`
+      });
+    }
+
+    // 2. Bear Call Spread Card
+    if (bcSellCall && bcBuyCall) {
+      const sellCallPrem = parseFloat(bcSellCall.callBid);
+      const buyCallPrem = parseFloat(bcBuyCall.callAsk);
+      const netCredit = Math.max(0.05, sellCallPrem - buyCallPrem);
+      const width = Math.abs(parseFloat(bcBuyCall.strike) - parseFloat(bcSellCall.strike));
+      const collateral = width * 100;
+      const maxProfit = netCredit * 100;
+      const maxRisk = Math.max(5, (width - netCredit) * 100);
+      const winProb = Math.round((1 - Math.abs(parseFloat(bcSellCall.callDelta))) * 100);
+
+      cards.push({
+        title: "Bear Call Credit Spread",
+        type: "Bear Call Spread",
+        strikes: `Sell ${bcSellCall.strike}C / Buy ${bcBuyCall.strike}C ($${width.toFixed(2)} wide)`,
+        desc: "Bearish to neutral. Earn credit from time decay. Max profit is achieved if stock stays below the short call strike.",
+        winProb: `${winProb}%`,
+        maxProfit: `$${maxProfit.toFixed(2)}`,
+        maxLoss: `$${maxRisk.toFixed(2)}`,
+        premium: `+$${netCredit.toFixed(2)}`,
+        collateral: `$${collateral.toFixed(0)}`,
+        legs: `Sell ${bcSellCall.strike}C / Buy ${bcBuyCall.strike}C`
+      });
+    }
+
+    // 3. Bull Call Spread Card
+    if (dbBuyCall && dbSellCall) {
+      const buyCallPrem = parseFloat(dbBuyCall.callAsk);
+      const sellCallPrem = parseFloat(dbSellCall.callBid);
+      const netDebit = Math.max(0.05, buyCallPrem - sellCallPrem);
+      const width = Math.abs(parseFloat(dbSellCall.strike) - parseFloat(dbBuyCall.strike));
+      const maxProfit = Math.max(5, (width - netDebit) * 100);
+      const maxRisk = netDebit * 100;
+      const winProb = Math.round(Math.abs(parseFloat(dbBuyCall.callDelta)) * 100);
+
+      cards.push({
+        title: "Bull Call Debit Spread",
+        type: "Bull Call Spread",
+        strikes: `Buy ${dbBuyCall.strike}C / Sell ${dbSellCall.strike}C ($${width.toFixed(2)} wide)`,
+        desc: "Strongly bullish. Leverage price gains with defined risk. Max profit occurs if stock ends above the short call strike.",
+        winProb: `${winProb}%`,
+        maxProfit: `$${maxProfit.toFixed(2)}`,
+        maxLoss: `$${maxRisk.toFixed(2)}`,
+        premium: `-$${netDebit.toFixed(2)}`,
+        collateral: `$0 (Debit Paid)`,
+        legs: `Buy ${dbBuyCall.strike}C / Sell ${dbSellCall.strike}C`
+      });
+    }
+
+    // 4. Bear Put Spread Card
+    if (dbBuyPut && dbSellPut) {
+      const buyPutPrem = parseFloat(dbBuyPut.putAsk);
+      const sellPutPrem = parseFloat(dbSellPut.putBid);
+      const netDebit = Math.max(0.05, buyPutPrem - sellPutPrem);
+      const width = Math.abs(parseFloat(dbSellPut.strike) - parseFloat(dbBuyPut.strike));
+      const maxProfit = Math.max(5, (width - netDebit) * 100);
+      const maxRisk = netDebit * 100;
+      const winProb = Math.round(Math.abs(parseFloat(dbBuyPut.putDelta)) * 100);
+
+      cards.push({
+        title: "Bear Put Debit Spread",
+        type: "Bear Put Spread",
+        strikes: `Buy ${dbBuyPut.strike}P / Sell ${dbSellPut.strike}P ($${width.toFixed(2)} wide)`,
+        desc: "Strongly bearish. Profit from downward moves with defined risk. Max profit occurs if stock ends below the short put strike.",
+        winProb: `${winProb}%`,
+        maxProfit: `$${maxProfit.toFixed(2)}`,
+        maxLoss: `$${maxRisk.toFixed(2)}`,
+        premium: `-$${netDebit.toFixed(2)}`,
+        collateral: `$0 (Debit Paid)`,
+        legs: `Buy ${dbBuyPut.strike}P / Sell ${dbSellPut.strike}P`
+      });
+    }
+
+    // 5. Iron Condor Card (Sideways)
+    if (bpSellPut && bpBuyPut && bcSellCall && bcBuyCall) {
+      const putCredit = parseFloat(bpSellPut.putBid) - parseFloat(bpBuyPut.putAsk);
+      const callCredit = parseFloat(bcSellCall.callBid) - parseFloat(bcBuyCall.callAsk);
+      const totalCredit = Math.max(0.10, putCredit + callCredit);
+      const putWidth = Math.abs(parseFloat(bpSellPut.strike) - parseFloat(bpBuyPut.strike));
+      const callWidth = Math.abs(parseFloat(bcBuyCall.strike) - parseFloat(bcSellCall.strike));
+      const maxWidth = Math.max(putWidth, callWidth);
+      const collateral = maxWidth * 100;
+      const maxProfit = totalCredit * 100;
+      const maxRisk = Math.max(5, (maxWidth - totalCredit) * 100);
+      const winProb = Math.round((1 - Math.abs(parseFloat(bpSellPut.putDelta)) - Math.abs(parseFloat(bcSellCall.callDelta))) * 100);
+
+      cards.push({
+        title: "Iron Condor Spread",
+        type: "Iron Condor",
+        strikes: `Sell ${bcSellCall.strike}C/Buy ${bcBuyCall.strike}C + Sell ${bpSellPut.strike}P/Buy ${bpBuyPut.strike}P`,
+        desc: "Neutral setup. Capitalize on sideways trading range. High win probability as time value decays on both sides.",
+        winProb: `${winProb}%`,
+        maxProfit: `$${maxProfit.toFixed(2)}`,
+        maxLoss: `$${maxRisk.toFixed(2)}`,
+        premium: `+$${totalCredit.toFixed(2)}`,
+        collateral: `$${collateral.toFixed(0)}`,
+        legs: `Sell ${bcSellCall.strike}C/Buy ${bcBuyCall.strike}C + Sell ${bpSellPut.strike}P/Buy ${bpBuyPut.strike}P`
+      });
+    }
+
+    // 6. Straddle Card (Breakout)
+    if (atmCall && atmPut) {
+      const callPrem = parseFloat(atmCall.callAsk);
+      const putPrem = parseFloat(atmPut.putAsk);
+      const totalCost = callPrem + putPrem;
+      const winProb = 40; // Straddle typically has lower raw win probability but high asymmetry
+
+      cards.push({
+        title: "ATM Breakout Straddle",
+        type: "Straddle",
+        strikes: `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`,
+        desc: "Pure volatility breakout. Buy both atm call and put. Profit from major price moves in either direction.",
+        winProb: `${winProb}%`,
+        maxProfit: "Unlimited",
+        maxLoss: `$${(totalCost * 100).toFixed(2)}`,
+        premium: `-$${totalCost.toFixed(2)}`,
+        collateral: `$0 (Debit Paid)`,
+        legs: `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`
+      });
+    }
+
+    strategiesGrid.innerHTML = cards.map(c => `
+      <div class="best-bet-item hover-trigger">
+        <div class="bet-header">
+          <div>
+            <span class="bet-title">${c.title}</span>
+            <div class="bet-thesis" style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; margin-top: 2px;">${c.type}</div>
+            <div class="bet-strikes" style="margin-top: 6px; font-size: 11.5px; line-height: 1.3;">${c.strikes}</div>
+          </div>
+          <span class="bet-grade">${parseFloat(c.winProb) > 65 ? 'A+' : parseFloat(c.winProb) > 50 ? 'A' : 'B'}</span>
+        </div>
+        
+        <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0 12px 0; line-height: 1.4;">${c.desc}</p>
+        
+        <div class="bet-metrics">
+          <div class="bet-metric">
+            <span class="bet-metric-label">Win Probability</span>
+            <span class="bet-metric-value positive">${c.winProb}</span>
+          </div>
+          <span class="bet-metric">
+            <span class="bet-metric-label">Net Prem. Price</span>
+            <span class="bet-metric-value">${c.premium}</span>
+          </span>
+          <div class="bet-metric">
+            <span class="bet-metric-label">Max Reward</span>
+            <span class="bet-metric-value positive">${c.maxProfit}</span>
+          </div>
+          <div class="bet-metric">
+            <span class="bet-metric-label">Max Risk</span>
+            <span class="bet-metric-value negative">${c.maxLoss}</span>
+          </div>
+        </div>
+        
+        <button class="quick-trade-btn" onclick="tradeSpreadFromChain('${ticker}', '${c.type}', '${c.legs}', '${c.premium}', '${c.maxLoss}')">
+          Trade This Setup
+        </button>
+      </div>
+    `).join("");
   })
   .catch(err => {
     callsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--accent-negative); padding: 12px;">Error fetching options data.</td></tr>`;
     putsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--accent-negative); padding: 12px;">Error fetching options data.</td></tr>`;
+    strategiesGrid.innerHTML = `<div style="text-align: center; color: var(--accent-negative); padding: 24px; grid-column: span 3;">Error loading setup recommendations.</div>`;
+    console.error(err);
   });
 }
 
-// Click Option Row callback
-window.selectStrike = function(type, strike, price) {
-  const ticker = document.getElementById("underlyingTicker").value;
+window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk) {
+  const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
   showHoverPanel(
-    `Execute ${ticker} Trade`,
+    `Execute Spread Order`,
     `
-      <p style="margin-bottom: 12px;">Initiate a new options order via Alpaca Sandbox API:</p>
-      <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
-        <strong>Asset:</strong> ${ticker} $${strike} ${type}<br>
-        <strong>Est. Price:</strong> $${price} per contract ($${(parseFloat(price) * 100).toFixed(2)})
+      <p style="margin-bottom: 12px;">Confirm execution of <strong>${ticker} ${strategy}</strong> via Alpaca Sandbox API:</p>
+      <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; line-height: 1.5;">
+        <strong>Asset:</strong> ${ticker} (${expiry})<br>
+        <strong>Strikes:</strong> ${strikes}<br>
+        <strong>Net Premium Price:</strong> ${premium}<br>
+        <strong>Collateral/Max Risk:</strong> ${risk}
       </div>
-      <button class="primary-btn" onclick="executeTrade('${ticker}', '${type}', '${strike}', '${price}')">
-        Send Market Order
+      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}')">
+        Transmit Spread Order
       </button>
     `
   );
 }
 
-window.executeTrade = function(ticker, type, strike, price) {
-  const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
-  showHoverPanel("Order Sent", `Routing order to Alpaca: Buy 1 contract of ${ticker} $${strike} ${type} at $${price}...`);
+window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry) {
+  showHoverPanel("Order Sent", `Routing multi-leg spread order to Alpaca: Transmitting ${ticker} ${strategy}...`);
   
   fetch(`/api/trade?username=${encodeURIComponent(currentUser)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       profile: state.activeProfile,
-      ticker, type, strike, price, expiry
+      ticker: ticker,
+      type: strategy,
+      strike: strikes,
+      price: premium,
+      expiry: expiry
     })
   })
   .then(async res => {
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Trade execution failed");
+    if (!res.ok) throw new Error(data.detail || "Spread execution failed");
     return data;
   })
   .then(data => {
     setTimeout(() => {
-      showHoverPanel("Order Filled", `Successfully executed Options trade via Alpaca! Message: ${data.message || 'Order placed'}`);
+      showHoverPanel("Spread Order Filled", `Successfully executed ${ticker} spread! Option order placed via Alpaca. Message: ${data.message}`);
+      
+      // Add strategy to active list for demonstration
+      const summaryList = document.getElementById("strategySummary");
+      if (summaryList) {
+        const newItem = document.createElement("div");
+        newItem.className = "strategy-item hover-trigger";
+        newItem.innerHTML = `
+          <div class="strategy-info">
+            <span class="strategy-title">${ticker} ${strategy}</span>
+            <span class="strategy-meta">Expires ${expiry.split('(')[0].trim()}</span>
+          </div>
+          <span class="strategy-pnl positive">$0.00</span>
+        `;
+        summaryList.insertBefore(newItem, summaryList.firstChild);
+      }
     }, 1000);
   })
   .catch(err => {
