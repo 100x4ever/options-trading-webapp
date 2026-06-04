@@ -1702,6 +1702,7 @@ function renderTechnicalChart(ticker, tab) {
         },
         scales: {
           x: { 
+            stacked: true,
             grid: { color: "rgba(255, 255, 255, 0.03)" }, 
             ticks: { 
               color: "rgba(255,255,255,0.5)", 
