@@ -1623,46 +1623,49 @@ function renderTechnicalChart(ticker, tab) {
     const colorPositive = computedStyle.getPropertyValue('--accent-positive').trim() || "#00e676";
     const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
 
+    // Setup candlestick bar coordinates
+    const colors = data.closes.map((c, i) => c >= data.opens[i] ? colorPositive : colorNegative);
+    const wicksData = data.closes.map((c, i) => [data.lows[i], data.highs[i]]);
+    const bodiesData = data.closes.map((c, i) => [data.opens[i], c]);
+
     const newMainChart = new Chart(ctxMain, {
-      type: "line",
+      type: "bar",
       data: {
         labels: labels,
         datasets: [
           {
-            label: "Close Price",
-            data: data.closes,
-            borderColor: "#00f0ff",
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.15
-          },
-          {
-            label: "High Range",
-            data: data.highs,
-            borderColor: "rgba(255, 255, 255, 0.08)",
+            type: "bar",
+            label: "Price Body",
+            data: bodiesData,
+            backgroundColor: colors,
+            borderColor: colors,
             borderWidth: 1,
-            pointRadius: 0,
-            fill: false
+            barThickness: 8,
+            order: 2
           },
           {
-            label: "Low Range",
-            data: data.lows,
-            borderColor: "rgba(255, 255, 255, 0.08)",
+            type: "bar",
+            label: "Wick Range",
+            data: wicksData,
+            backgroundColor: colors,
+            borderColor: colors,
             borderWidth: 1,
-            pointRadius: 0,
-            fill: "-1",
-            backgroundColor: "rgba(0, 240, 255, 0.02)"
+            barThickness: 1.8,
+            order: 3
           },
           {
+            type: "line",
             label: "30 HMA",
             data: data.hma30,
             borderColor: "#ffb800",
             borderWidth: 1.8,
             pointRadius: 0,
             borderDash: [5, 4],
-            tension: 0.2
+            tension: 0.2,
+            order: 1
           },
           {
+            type: "line",
             label: "Supertrend",
             data: data.supertrend,
             borderWidth: 2.5,
@@ -1670,7 +1673,8 @@ function renderTechnicalChart(ticker, tab) {
             segment: {
               borderColor: supertrendSegmentColor
             },
-            tension: 0.1
+            tension: 0.1,
+            order: 0
           }
         ]
       },
@@ -1684,7 +1688,16 @@ function renderTechnicalChart(ticker, tab) {
           }
         },
         scales: {
-          x: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)", font: { size: 9 } } },
+          x: { 
+            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+            ticks: { 
+              color: "rgba(255,255,255,0.5)", 
+              font: { size: 9 },
+              maxTicksLimit: 8,
+              maxRotation: 0,
+              minRotation: 0
+            } 
+          },
           y: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)" } }
         }
       }
@@ -1731,7 +1744,16 @@ function renderTechnicalChart(ticker, tab) {
           }
         },
         scales: {
-          x: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)", font: { size: 9 } } },
+          x: { 
+            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+            ticks: { 
+              color: "rgba(255,255,255,0.5)", 
+              font: { size: 9 },
+              maxTicksLimit: 8,
+              maxRotation: 0,
+              minRotation: 0
+            } 
+          },
           y: { 
             grid: { color: "rgba(255, 255, 255, 0.03)" }, 
             ticks: { color: "rgba(255,255,255,0.5)" },
