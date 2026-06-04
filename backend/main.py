@@ -39,6 +39,7 @@ class TradeModel(BaseModel):
     type: str
     strike: str
     price: str
+    qty: Optional[int] = 1
     expiry: Optional[str] = "June 19, 2026 (14 Days)"
 
 # Helper to read database
@@ -557,7 +558,7 @@ def execute_trade(trade: TradeModel, username: str):
                 )
             
             order_request = LimitOrderRequest(
-                qty=1,
+                qty=trade.qty,
                 limit_price=price_val,
                 order_class=OrderClass.MLEG,
                 time_in_force=TimeInForce.DAY,
@@ -576,7 +577,7 @@ def execute_trade(trade: TradeModel, username: str):
             osi_symbol = format_osi_symbol(trade.ticker, expiry_yymmdd, leg["type"], leg["strike"])
             order_request = LimitOrderRequest(
                 symbol=osi_symbol,
-                qty=1,
+                qty=trade.qty,
                 side=leg["side"],
                 time_in_force=TimeInForce.DAY,
                 limit_price=price_val
@@ -702,7 +703,7 @@ def calculate_stochastic_d(highs: list, lows: list, closes: list, k_period: int,
 def get_chart_technical(ticker: str):
     ticker_upper = ticker.strip().upper()
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}?interval=1h&range=1wk"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}?interval=1h&range=1mo"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code != 200:

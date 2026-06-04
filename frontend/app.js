@@ -146,7 +146,7 @@ function initAuthForm() {
   });
 
   submitBtn.addEventListener("click", () => {
-    const username = document.getElementById("authUsername").value.trim();
+    const username = document.getElementById("authUsername").value.trim().toLowerCase();
     const password = document.getElementById("authPassword").value;
 
     if (!username || !password) {
@@ -175,7 +175,9 @@ function initAuthForm() {
       } else {
         currentUser = data.username;
         localStorage.setItem("auratrade_user", currentUser);
+        localStorage.setItem("auratrade_pass_" + currentUser, password);
         state = data.state;
+        localStorage.setItem("auratrade_state_" + currentUser, JSON.stringify(state));
         applyProfileSettings(state.activeProfile);
         rebuildProfileSelectors();
         hideAuthScreen();
@@ -189,6 +191,10 @@ function initAuthForm() {
 
   // Logout actions
   document.getElementById("logoutBtn").addEventListener("click", () => {
+    if (currentUser) {
+      localStorage.removeItem("auratrade_pass_" + currentUser);
+      localStorage.removeItem("auratrade_state_" + currentUser);
+    }
     localStorage.removeItem("auratrade_user");
     currentUser = null;
     document.getElementById("authUsername").value = "";
@@ -203,7 +209,31 @@ function loadUserProfile(username) {
   .then(res => {
     if (!res.ok) {
       if (res.status === 404) {
-        // User session invalid/deleted on backend
+        // User session invalid/deleted on backend (e.g. server restarted or database wiped)
+        const cachedState = localStorage.getItem("auratrade_state_" + username);
+        const cachedPass = localStorage.getItem("auratrade_pass_" + username);
+        if (cachedState && cachedPass) {
+          // Silent auto-registration & restore configuration on backend
+          return fetch("/api/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password: cachedPass })
+          })
+          .then(async regRes => {
+            if (!regRes.ok) throw new Error("Auto-registration failed");
+            const parsedState = JSON.parse(cachedState);
+            return fetch(`/api/profiles?username=${encodeURIComponent(username)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(parsedState)
+            })
+            .then(syncRes => {
+              if (!syncRes.ok) throw new Error("Auto-sync profile failed");
+              return parsedState;
+            });
+          });
+        }
+        
         localStorage.removeItem("auratrade_user");
         currentUser = null;
         showAuthScreen();
@@ -214,12 +244,13 @@ function loadUserProfile(username) {
   })
   .then(data => {
     state = data;
+    localStorage.setItem("auratrade_state_" + username, JSON.stringify(state));
     applyProfileSettings(state.activeProfile);
     rebuildProfileSelectors();
     hideAuthScreen();
   })
   .catch(err => {
-    console.error(err);
+    console.error("Auto recovery error:", err);
     if (!currentUser) {
       showAuthScreen();
     } else {
@@ -957,25 +988,33 @@ function renderOptionChain() {
 
 window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk) {
   const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
+  const qtyInput = document.getElementById("orderQtyInput");
+  const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
+  
+  // Clean pricing numeric values for calculations
+  const rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
+  const rawRisk = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
+  
   showHoverPanel(
     `Execute Spread Order`,
     `
-      <p style="margin-bottom: 12px;">Confirm execution of <strong>${ticker} ${strategy}</strong> via Alpaca Sandbox API:</p>
+      <p style="margin-bottom: 12px;">Confirm execution of <strong>${qty}x ${ticker} ${strategy}</strong> via Alpaca Sandbox API:</p>
       <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; line-height: 1.5;">
         <strong>Asset:</strong> ${ticker} (${expiry})<br>
         <strong>Strikes:</strong> ${strikes}<br>
-        <strong>Net Premium Price:</strong> ${premium}<br>
-        <strong>Collateral/Max Risk:</strong> ${risk}
+        <strong>Quantity:</strong> ${qty} contract(s)<br>
+        <strong>Est Net Premium:</strong> ${premium.startsWith('+') || premium.startsWith('-') ? premium[0] : ''}$${Math.abs(rawPrem * 100 * qty).toFixed(2)} ($${rawPrem.toFixed(2)} each)<br>
+        <strong>Collateral/Max Risk:</strong> $${(rawRisk * qty).toFixed(2)}
       </div>
-      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}')">
+      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}', ${qty})">
         Transmit Spread Order
       </button>
     `
   );
 }
 
-window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry) {
-  showHoverPanel("Order Sent", `Routing multi-leg spread order to Alpaca: Transmitting ${ticker} ${strategy}...`);
+window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry, qty) {
+  showHoverPanel("Order Sent", `Routing multi-leg spread order to Alpaca: Transmitting ${qty}x ${ticker} ${strategy}...`);
   
   fetch(`/api/trade?username=${encodeURIComponent(currentUser)}`, {
     method: "POST",
@@ -986,6 +1025,7 @@ window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry)
       type: strategy,
       strike: strikes,
       price: premium,
+      qty: qty,
       expiry: expiry
     })
   })
@@ -1005,13 +1045,66 @@ window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry)
         newItem.className = "strategy-item hover-trigger";
         newItem.innerHTML = `
           <div class="strategy-info">
-            <span class="strategy-title">${ticker} ${strategy}</span>
+            <span class="strategy-title">${qty}x ${ticker} ${strategy}</span>
             <span class="strategy-meta">Expires ${expiry.split('(')[0].trim()}</span>
           </div>
           <span class="strategy-pnl positive">$0.00</span>
         `;
         summaryList.insertBefore(newItem, summaryList.firstChild);
       }
+    }, 1000);
+  })
+  .catch(err => {
+    showHoverPanel("Execution Error", `<span style="color: var(--accent-negative);">${err.message}</span>`);
+  });
+}
+
+window.selectStrike = function(type, strike, price) {
+  const ticker = document.getElementById("underlyingTicker").value;
+  const qtyInput = document.getElementById("orderQtyInput");
+  const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
+  
+  showHoverPanel(
+    `Execute ${ticker} Trade`,
+    `
+      <p style="margin-bottom: 12px;">Initiate a new options order via Alpaca Sandbox API:</p>
+      <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+        <strong>Asset:</strong> ${ticker} $${strike} ${type}<br>
+        <strong>Quantity:</strong> ${qty} contract(s)<br>
+        <strong>Est. Price:</strong> $${price} per contract ($${(parseFloat(price) * 100 * qty).toFixed(2)})
+      </div>
+      <button class="primary-btn" onclick="executeTrade('${ticker}', '${type}', '${strike}', '${price}', ${qty})">
+        Send Market Order
+      </button>
+    `
+  );
+}
+
+window.executeTrade = function(ticker, type, strike, price, qty) {
+  const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
+  showHoverPanel("Order Sent", `Routing order to Alpaca: Buy ${qty} contract(s) of ${ticker} $${strike} ${type} at $${price}...`);
+  
+  fetch(`/api/trade?username=${encodeURIComponent(currentUser)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      profile: state.activeProfile,
+      ticker: ticker,
+      type: type,
+      strike: strike,
+      price: price,
+      qty: qty,
+      expiry: expiry
+    })
+  })
+  .then(async res => {
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Trade execution failed");
+    return data;
+  })
+  .then(data => {
+    setTimeout(() => {
+      showHoverPanel("Order Filled", `Successfully executed Options trade via Alpaca! Message: ${data.message || 'Order placed'}`);
     }, 1000);
   })
   .catch(err => {
@@ -1031,6 +1124,7 @@ async function saveStateToBackend() {
     const errData = await res.json();
     throw new Error(errData.detail || "Failed to save configuration to backend.");
   }
+  localStorage.setItem("auratrade_state_" + currentUser, JSON.stringify(state));
 }
 
 // ==========================================================================
