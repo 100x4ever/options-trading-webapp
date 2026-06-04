@@ -596,6 +596,170 @@ def execute_trade(trade: TradeModel, username: str):
             detail=f"Alpaca API connection failed: {str(err)}"
         )
 
+# Hull Moving Average and indicator math helpers
+def calculate_wma(data: list, period: int) -> list:
+    wma_list = []
+    for i in range(len(data)):
+        if i < period - 1:
+            wma_list.append(None)
+            continue
+        weight_sum = sum(range(1, period + 1))
+        val_sum = sum(data[i - period + 1 + j] * (j + 1) for j in range(period))
+        wma_list.append(round(val_sum / weight_sum, 2))
+    return wma_list
+
+def calculate_hma(data: list, period: int) -> list:
+    half_period = int(period / 2)
+    wma_half = calculate_wma(data, half_period)
+    wma_full = calculate_wma(data, period)
+    
+    diff = []
+    for wh, wf in zip(wma_half, wma_full):
+        if wh is None or wf is None:
+            diff.append(None)
+        else:
+            diff.append(2.0 * wh - wf)
+            
+    sqrt_period = int(math.sqrt(period))
+    non_none_start = next((i for i, x in enumerate(diff) if x is not None), len(diff))
+    diff_clean = diff[non_none_start:]
+    
+    wma_diff = calculate_wma(diff_clean, sqrt_period)
+    
+    res = [None] * non_none_start
+    res.extend(wma_diff)
+    return res
+
+def calculate_supertrend(highs: list, lows: list, closes: list, period: int = 12, multiplier: float = 2.2) -> tuple:
+    n = len(closes)
+    atr = [0.0] * n
+    tr = [0.0] * n
+    for i in range(1, n):
+        tr[i] = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i-1]),
+            abs(lows[i] - closes[i-1])
+        )
+    tr[0] = highs[0] - lows[0]
+    
+    for i in range(period - 1, n):
+        if i == period - 1:
+            atr[i] = sum(tr[:period]) / period
+        else:
+            atr[i] = (atr[i-1] * (period - 1) + tr[i]) / period
+
+    supertrend = [None] * n
+    direction = [1] * n
+    final_upper = [0.0] * n
+    final_lower = [0.0] * n
+    
+    for i in range(period, n):
+        hl2 = (highs[i] + lows[i]) / 2.0
+        basic_upper = hl2 + multiplier * atr[i]
+        basic_lower = hl2 - multiplier * atr[i]
+        
+        if basic_upper < final_upper[i-1] or closes[i-1] > final_upper[i-1]:
+            final_upper[i] = basic_upper
+        else:
+            final_upper[i] = final_upper[i-1]
+            
+        if basic_lower > final_lower[i-1] or closes[i-1] < final_lower[i-1]:
+            final_lower[i] = basic_lower
+        else:
+            final_lower[i] = final_lower[i-1]
+            
+        if closes[i] > final_upper[i]:
+            direction[i] = 1
+        elif closes[i] < final_lower[i]:
+            direction[i] = -1
+        else:
+            direction[i] = direction[i-1]
+            
+        st_val = final_lower[i] if direction[i] == 1 else final_upper[i]
+        supertrend[i] = round(st_val, 2)
+          
+    return supertrend, direction
+
+def calculate_stochastic_d(highs: list, lows: list, closes: list, k_period: int, d_period: int) -> list:
+    n = len(closes)
+    k_values = [0.0] * n
+    for i in range(k_period - 1, n):
+        low_low = min(lows[i - k_period + 1 : i + 1])
+        high_high = max(highs[i - k_period + 1 : i + 1])
+        diff = high_high - low_low
+        if diff == 0:
+            k_values[i] = 50.0
+        else:
+            k_values[i] = (closes[i] - low_low) / diff * 100.0
+            
+    d_values = [None] * n
+    for i in range(k_period + d_period - 2, n):
+        d_values[i] = round(sum(k_values[i - d_period + 1 : i + 1]) / d_period, 2)
+    return d_values
+
+# Fetch 1h Candlestick Chart Data & Technical Indicators (HMA, Supertrend, Stochastics)
+@app.get("/api/chart/technical")
+def get_chart_technical(ticker: str):
+    ticker_upper = ticker.strip().upper()
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}?interval=1h&range=1wk"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch data from Yahoo Finance.")
+            
+        data = res.json()
+        result = data["chart"]["result"][0]
+        timestamps = result["timestamp"]
+        quotes = result["indicators"]["quote"][0]
+        
+        opens = quotes["open"]
+        highs = quotes["high"]
+        lows = quotes["low"]
+        closes = quotes["close"]
+        
+        # Clean data (remove None values if any)
+        clean_timestamps = []
+        clean_opens = []
+        clean_highs = []
+        clean_lows = []
+        clean_closes = []
+        
+        for i in range(len(closes)):
+            if (closes[i] is not None and highs[i] is not None and 
+                lows[i] is not None and opens[i] is not None and timestamps[i] is not None):
+                clean_timestamps.append(timestamps[i])
+                clean_opens.append(round(opens[i], 2))
+                clean_highs.append(round(highs[i], 2))
+                clean_lows.append(round(lows[i], 2))
+                clean_closes.append(round(closes[i], 2))
+                
+        if len(clean_closes) < 45:
+            raise HTTPException(status_code=400, detail="Not enough bar history to compute indicators.")
+            
+        # Calculate indicator overlays
+        hma30 = calculate_hma(clean_closes, 30)
+        supertrend, direction = calculate_supertrend(clean_highs, clean_lows, clean_closes, 12, 2.2)
+        stoch14_4d = calculate_stochastic_d(clean_highs, clean_lows, clean_closes, 14, 4)
+        stoch40_4d = calculate_stochastic_d(clean_highs, clean_lows, clean_closes, 40, 4)
+        
+        return {
+            "ticker": ticker_upper,
+            "timestamps": clean_timestamps,
+            "opens": clean_opens,
+            "highs": clean_highs,
+            "lows": clean_lows,
+            "closes": clean_closes,
+            "hma30": hma30,
+            "supertrend": supertrend,
+            "supertrendDirection": direction,
+            "stoch14_4d": stoch14_4d,
+            "stoch40_4d": stoch40_4d
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error generating technical indicators: {str(e)}")
+
 # Serve Frontend static assets
 @app.get("/")
 def serve_index():

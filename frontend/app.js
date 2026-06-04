@@ -24,6 +24,10 @@ let state = {
 let currentUser = null;
 let isRegisterMode = false;
 let perfChart = null;
+let wizTechChart = null;
+let wizStochChart = null;
+let posTechChart = null;
+let posStochChart = null;
 
 // Tooltip dictionary mapping hover-trigger names to detailed descriptions
 const tooltips = {
@@ -58,6 +62,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initialize Strategy Wizard
   initStrategyWizard();
+
+  // Initialize Technical Charts & Beginner Baskets
+  initTechnicalCharts();
+  initBeginnerBaskets();
 });
 
 // Authentication Controller
@@ -1167,5 +1175,263 @@ window.executeBestBetTrade = function(strategy, strikes, premium) {
     showHoverPanel("Execution Error", `<span style="color: var(--accent-negative);">${err.message}</span>`);
   });
 }
+
+// ==========================================================================
+// TECHNICAL CHARTS & TECHNICAL INDICATORS ENGINE (HMA, SUPERTREND, STOCH)
+// ==========================================================================
+function initTechnicalCharts() {
+  const wizTickerInput = document.getElementById("wizTicker");
+  if (wizTickerInput) {
+    wizTickerInput.addEventListener("input", debounce(() => {
+      const ticker = wizTickerInput.value.trim().toUpperCase();
+      if (ticker.length >= 1) renderTechnicalChart(ticker, "wizard");
+    }, 500));
+  }
+  
+  const posTickerInput = document.getElementById("positionChartTicker");
+  if (posTickerInput) {
+    posTickerInput.addEventListener("input", debounce(() => {
+      const ticker = posTickerInput.value.trim().toUpperCase();
+      if (ticker.length >= 1) renderTechnicalChart(ticker, "positions");
+    }, 500));
+  }
+  
+  const wizardNavBtn = document.getElementById("nav-wizard");
+  if (wizardNavBtn) {
+    wizardNavBtn.addEventListener("click", () => {
+      const ticker = wizTickerInput ? wizTickerInput.value.trim().toUpperCase() : "AAPL";
+      setTimeout(() => renderTechnicalChart(ticker, "wizard"), 100);
+    });
+  }
+  
+  const positionsNavBtn = document.getElementById("nav-positions");
+  if (positionsNavBtn) {
+    positionsNavBtn.addEventListener("click", () => {
+      const ticker = posTickerInput ? posTickerInput.value.trim().toUpperCase() : "QQQ";
+      setTimeout(() => renderTechnicalChart(ticker, "positions"), 100);
+    });
+  }
+
+  setTimeout(() => {
+    renderTechnicalChart("AAPL", "wizard");
+    renderTechnicalChart("QQQ", "positions");
+  }, 1000);
+}
+
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+function renderTechnicalChart(ticker, tab) {
+  const isWiz = tab === "wizard";
+  const mainCanvasId = isWiz ? "technicalChartCanvas" : "positionTechnicalChartCanvas";
+  const stochCanvasId = isWiz ? "stochasticChartCanvas" : "positionStochasticChartCanvas";
+  
+  const mainCanvas = document.getElementById(mainCanvasId);
+  const stochCanvas = document.getElementById(stochCanvasId);
+  if (!mainCanvas || !stochCanvas) return;
+  
+  fetch(`/api/chart/technical?ticker=${encodeURIComponent(ticker)}`)
+  .then(res => res.json())
+  .then(data => {
+    // 1. Render Main Chart (Price, HMA 30, Supertrend)
+    const ctxMain = mainCanvas.getContext("2d");
+    let currentMainChart = isWiz ? wizTechChart : posTechChart;
+    if (currentMainChart) currentMainChart.destroy();
+    
+    const labels = data.timestamps.map(ts => {
+      const d = new Date(ts * 1000);
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    });
+    
+    const supertrendSegmentColor = (ctx) => {
+      if (ctx.type === 'section') return;
+      const index = ctx.p1DataIndex;
+      const dir = data.supertrendDirection[index];
+      return dir === 1 ? "#00e676" : "#ff2a5f";
+    };
+    
+    // Retrieve colors for line and background fill
+    const computedStyle = getComputedStyle(document.documentElement);
+    const colorPositive = computedStyle.getPropertyValue('--accent-positive').trim() || "#00e676";
+    const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
+
+    const newMainChart = new Chart(ctxMain, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "Close Price",
+            data: data.closes,
+            borderColor: "#00f0ff",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.15
+          },
+          {
+            label: "High Range",
+            data: data.highs,
+            borderColor: "rgba(255, 255, 255, 0.08)",
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: false
+          },
+          {
+            label: "Low Range",
+            data: data.lows,
+            borderColor: "rgba(255, 255, 255, 0.08)",
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: "-1",
+            backgroundColor: "rgba(0, 240, 255, 0.02)"
+          },
+          {
+            label: "30 HMA",
+            data: data.hma30,
+            borderColor: "#ffb800",
+            borderWidth: 1.8,
+            pointRadius: 0,
+            borderDash: [5, 4],
+            tension: 0.2
+          },
+          {
+            label: "Supertrend",
+            data: data.supertrend,
+            borderWidth: 2.5,
+            pointRadius: 0,
+            segment: {
+              borderColor: supertrendSegmentColor
+            },
+            tension: 0.1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
+          }
+        },
+        scales: {
+          x: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)", font: { size: 9 } } },
+          y: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)" } }
+        }
+      }
+    });
+    
+    if (isWiz) wizTechChart = newMainChart;
+    else posTechChart = newMainChart;
+    
+    // 2. Render Stochastics Chart (14,4%D & 40,4%D)
+    const ctxStoch = stochCanvas.getContext("2d");
+    let currentStochChart = isWiz ? wizStochChart : posStochChart;
+    if (currentStochChart) currentStochChart.destroy();
+    
+    const newStochChart = new Chart(ctxStoch, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "Stoch (14, 4 %D)",
+            data: data.stoch14_4d,
+            borderColor: colorNegative,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.2
+          },
+          {
+            label: "Stoch (40, 4 %D)",
+            data: data.stoch40_4d,
+            borderColor: "#7000ff",
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
+          }
+        },
+        scales: {
+          x: { grid: { color: "rgba(255, 255, 255, 0.03)" }, ticks: { color: "rgba(255,255,255,0.5)", font: { size: 9 } } },
+          y: { 
+            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+            ticks: { color: "rgba(255,255,255,0.5)" },
+            min: 0,
+            max: 100
+          }
+        }
+      }
+    });
+    
+    if (isWiz) wizStochChart = newStochChart;
+    else posStochChart = newStochChart;
+  })
+  .catch(err => console.error("Error drawing technical indicators chart:", err));
+}
+
+// ==========================================================================
+// BEGINNER STOCK BASKETS CONFIGURATION
+// ==========================================================================
+const optionBaskets = {
+  cheap: ["SOFI", "F", "PLTR", "PFE"],
+  medium: ["AMD", "INTC", "BAC", "VALE"],
+  high: ["TSLA", "AAPL", "MSFT", "NVDA"]
+};
+
+function initBeginnerBaskets() {
+  const basketButtons = document.querySelectorAll("#beginnerBasketsGroup .basket-btn");
+  basketButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      basketButtons.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const basketName = btn.getAttribute("data-basket");
+      renderBasketTickers(basketName);
+    });
+  });
+  
+  renderBasketTickers("high");
+}
+
+function renderBasketTickers(basketName) {
+  const listContainer = document.getElementById("basketTickersList");
+  if (!listContainer) return;
+  
+  const tickers = optionBaskets[basketName] || [];
+  
+  listContainer.innerHTML = tickers.map(ticker => `
+    <button class="strategy-badge ticker-badge" style="cursor: pointer; margin-bottom: 0; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;" onclick="loadTickerFromBasket('${ticker}')">
+      ${ticker}
+    </button>
+  `).join("");
+}
+
+window.loadTickerFromBasket = function(ticker) {
+  const tickerInput = document.getElementById("underlyingTicker");
+  if (tickerInput) {
+    tickerInput.value = ticker;
+    renderOptionChain();
+  }
+}
+
 
 

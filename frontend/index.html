@@ -129,16 +129,6 @@
             <span class="metric-value" id="buyingPower">$48,290.15</span>
             <span class="metric-change">Options Leverage 1.0x</span>
           </div>
-          <div class="glass-card metric-card hover-trigger" data-tooltip="Consolidated Delta exposure of the portfolio">
-            <span class="metric-label">Portfolio Delta (β)</span>
-            <span class="metric-value positive" id="portfolioDelta">+42.85</span>
-            <span class="metric-change">Bullish bias</span>
-          </div>
-          <div class="glass-card metric-card hover-trigger" data-tooltip="Estimated daily time decay of your options holdings">
-            <span class="metric-label">Portfolio Theta (θ)</span>
-            <span class="metric-value negative" id="portfolioTheta">-$184.20</span>
-            <span class="metric-change">Daily decay rate</span>
-          </div>
         </div>
 
         <div class="dashboard-charts-grid">
@@ -243,6 +233,22 @@
             </button>
           </div>
         </div>
+
+        <!-- TECHNICAL CHART CARD -->
+        <div class="glass-card chart-card" style="margin-top: 20px;">
+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h3><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> Technical Candlestick Chart (1h Candles, 1 Week)</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Overlay: 30 HMA (Hull Moving Average), Supertrend (12, 2.2). Oscillator: Stochastic (14, 4%D & 40, 4%D).</p>
+            </div>
+          </div>
+          <div class="chart-container" style="height: 300px; margin-bottom: 20px;">
+            <canvas id="technicalChartCanvas"></canvas>
+          </div>
+          <div class="chart-container" style="height: 150px;">
+            <canvas id="stochasticChartCanvas"></canvas>
+          </div>
+        </div>
       </section>
 
       <!-- TAB: POSITIONS -->
@@ -273,6 +279,25 @@
             </tbody>
           </table>
         </div>
+
+        <!-- POSITION CHART CARD -->
+        <div class="glass-card chart-card" style="margin-top: 20px;">
+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h3><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> Position Tech Chart (1h Candles, 1 Week)</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Select an active position or type a ticker to load the 1h candle chart with HMA, Supertrend, and Stochastic overlays.</p>
+            </div>
+            <div style="margin-bottom: 0;">
+              <input type="text" id="positionChartTicker" value="QQQ" placeholder="AAPL, QQQ, TSLA..." style="width: 100px; padding: 8px 12px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-main);">
+            </div>
+          </div>
+          <div class="chart-container" style="height: 300px; margin-bottom: 20px;">
+            <canvas id="positionTechnicalChartCanvas"></canvas>
+          </div>
+          <div class="chart-container" style="height: 150px;">
+            <canvas id="positionStochasticChartCanvas"></canvas>
+          </div>
+        </div>
       </section>
 
       <!-- TAB: OPTION CHAIN -->
@@ -282,7 +307,7 @@
           <p>Analyze strikes, premiums, and execute trades instantly via Alpaca sandbox.</p>
         </header>
 
-        <div class="options-controls glass-card">
+        <div class="options-controls glass-card" style="display: flex; gap: 20px; flex-wrap: wrap;">
           <div class="control-group">
             <label for="underlyingTicker">Underlying Ticker</label>
             <div class="ticker-input-wrapper">
@@ -295,6 +320,20 @@
             <select id="expirationSelect">
               <!-- Populate dynamically -->
             </select>
+          </div>
+          <div class="control-group" style="flex: 1; min-width: 280px;">
+            <label>Beginner Stock Baskets (Select Limit/Risk)</label>
+            <div class="wiz-btn-group" id="beginnerBasketsGroup" style="margin-top: 4px;">
+              <button class="wiz-select-btn basket-btn" data-basket="cheap">Cheap ($40-$70)</button>
+              <button class="wiz-select-btn basket-btn" data-basket="medium">Medium ($80-$120)</button>
+              <button class="wiz-select-btn basket-btn active" data-basket="high">High ($130-$250)</button>
+            </div>
+          </div>
+          <div class="control-group" style="flex: 1; min-width: 250px;">
+            <label id="basketTickersLabel">High Volume Tickers</label>
+            <div id="basketTickersList" style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+              <!-- Badges populated dynamically by JS -->
+            </div>
           </div>
         </div>
 
