@@ -1191,10 +1191,49 @@ function initStrategyWizard() {
   dateSelect.addEventListener("change", calculateWizardStrategy);
   tickerInput.addEventListener("input", calculateWizardStrategy);
 
+  const wizQty = document.getElementById("wizQty");
+  const wizSpreadWidth = document.getElementById("wizSpreadWidth");
+  if (wizQty) wizQty.addEventListener("input", calculateWizardStrategy);
+  if (wizSpreadWidth) wizSpreadWidth.addEventListener("input", calculateWizardStrategy);
+
+  // Preset buttons in wizard
+  const wizBudgetButtons = document.querySelectorAll("#wizSpreadBudgetsGroup .wiz-budget-preset-btn");
+  wizBudgetButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      wizBudgetButtons.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const budgetVal = parseFloat(btn.getAttribute("data-budget"));
+      if (wizSpreadWidth) {
+        wizSpreadWidth.value = (budgetVal / 100).toFixed(2);
+        wizSpreadWidth.dispatchEvent(new Event('input'));
+      }
+    });
+  });
+
   // Load Order button handler
   document.getElementById("loadWizOrderBtn").addEventListener("click", () => {
     const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
     
+    // Propagate Quantity and Spread Width parameters from Wizard to Option Chain Builder
+    const mainQty = document.getElementById("orderQtyInput");
+    const mainWidth = document.getElementById("spreadLimitInput");
+    
+    if (mainQty && wizQty) mainQty.value = wizQty.value;
+    if (mainWidth && wizSpreadWidth) {
+      mainWidth.value = wizSpreadWidth.value;
+      
+      // Update active preset button in main tab if matching
+      const mainBudgetButtons = document.querySelectorAll("#spreadBudgetsGroup .budget-preset-btn");
+      mainBudgetButtons.forEach(btn => {
+        const budgetVal = (parseFloat(btn.getAttribute("data-budget")) / 100).toFixed(2);
+        if (budgetVal === parseFloat(wizSpreadWidth.value).toFixed(2)) {
+          btn.classList.add("active");
+        } else {
+          btn.classList.remove("active");
+        }
+      });
+    }
+
     // Switch to Options Tab
     const optionsNavBtn = document.getElementById("nav-options");
     if(optionsNavBtn) optionsNavBtn.click();
@@ -1222,10 +1261,18 @@ function calculateWizardStrategy() {
   const lossLabel = document.getElementById("wizMaxLoss");
   const probLabel = document.getElementById("wizWinProb");
 
+  const wizQtyInput = document.getElementById("wizQty");
+  const qty = parseInt(wizQtyInput ? wizQtyInput.value : 1) || 1;
+
+  const wizSpreadWidthInput = document.getElementById("wizSpreadWidth");
+  const width = parseFloat(wizSpreadWidthInput ? wizSpreadWidthInput.value : 1.0) || 1.0;
+
   let strategy = "Bull Call Debit Spread";
   let explanation = "";
-  let stats = { maxProfit: "$180", maxLoss: "$120", prob: "52%" };
   let curveType = "debit_call_spread"; // helper for drawing curve
+  let maxProfit = 0;
+  let maxLoss = 0;
+  let winProb = "50%";
 
   if (wizDirection === "up") {
     if (wizSpeed === "fast") {
@@ -1237,7 +1284,9 @@ function calculateWizardStrategy() {
         • <strong>Theta/Time Decay:</strong> Negative drag. You need the directional rise to happen within the first 3 to 5 days.<br>
         • <strong>Rule-Based Exit:</strong> Auto-take profit at <strong>50% to 75% ROI</strong>. Stop loss at <strong>50% of premium paid</strong>.
       `;
-      stats = { maxProfit: "$285", maxLoss: "$215", prob: "51%" };
+      maxLoss = Math.round(0.42 * width * 100 * qty);
+      maxProfit = Math.round((width - 0.42 * width) * 100 * qty);
+      winProb = "51%";
       curveType = "bull_call_spread";
     } else {
       strategy = "Bull Put Credit Spread";
@@ -1248,7 +1297,9 @@ function calculateWizardStrategy() {
         • <strong>Theta/Time Decay:</strong> Positive gain. Time is your best friend; every day it stays flat/rallies, premium decays to pocket profit.<br>
         • <strong>Rule-Based Exit:</strong> Limit order to close at <strong>50% to 60% of max profit</strong>. Hard stop out if short leg reaches <strong>0.50 Delta</strong>.
       `;
-      stats = { maxProfit: "$135", maxLoss: "$365", prob: "72%" };
+      maxProfit = Math.round(0.27 * width * 100 * qty);
+      maxLoss = Math.round((width - 0.27 * width) * 100 * qty);
+      winProb = "72%";
       curveType = "bull_put_spread";
     }
   } else if (wizDirection === "down") {
@@ -1261,7 +1312,9 @@ function calculateWizardStrategy() {
         • <strong>Theta/Time Decay:</strong> Negative drag. Requires rapid decline within 3 to 5 days before Theta accelerates.<br>
         • <strong>Rule-Based Exit:</strong> Take profit at <strong>50% to 75% ROI</strong>. Stop out if position loses <strong>50% of premium paid</strong>.
       `;
-      stats = { maxProfit: "$280", maxLoss: "$220", prob: "49%" };
+      maxLoss = Math.round(0.44 * width * 100 * qty);
+      maxProfit = Math.round((width - 0.44 * width) * 100 * qty);
+      winProb = "49%";
       curveType = "bear_put_spread";
     } else {
       strategy = "Bear Call Credit Spread";
@@ -1272,7 +1325,9 @@ function calculateWizardStrategy() {
         • <strong>Theta/Time Decay:</strong> Positive gain. High win rate. As long as stock does not rally, premium melts into profit.<br>
         • <strong>Rule-Based Exit:</strong> Auto-take profit at <strong>50% to 60% of max profit</strong>. Stop out if short leg delta touches <strong>0.50 Delta</strong>.
       `;
-      stats = { maxProfit: "$120", maxLoss: "$380", prob: "74%" };
+      maxProfit = Math.round(0.24 * width * 100 * qty);
+      maxLoss = Math.round((width - 0.24 * width) * 100 * qty);
+      winProb = "74%";
       curveType = "bear_call_spread";
     }
   } else if (wizDirection === "sideways") {
@@ -1283,7 +1338,9 @@ function calculateWizardStrategy() {
       • <strong>Theta/Time Decay:</strong> Maximum positive gain. Double decay speed from both wings. Highly sensitive to quiet markets.<br>
       • <strong>Rule-Based Exit:</strong> Take profit early at <strong>50% max profit</strong>. Exit instantly if short strike on either leg is breached.
     `;
-    stats = { maxProfit: "$255", maxLoss: "$245", prob: "68%" };
+    maxProfit = Math.round(0.35 * width * 100 * qty);
+    maxLoss = Math.round((width - 0.35 * width) * 100 * qty);
+    winProb = "68%";
     curveType = "iron_condor";
   } else if (wizDirection === "breakout") {
     strategy = "Long Straddle / Strangle";
@@ -1293,16 +1350,18 @@ function calculateWizardStrategy() {
       • <strong>Implied Volatility:</strong> Buy during Low IV, sell when IV spikes during the breakout.<br>
       • <strong>Rule-Based Exit:</strong> Close at <strong>50% return</strong> or cut loss if position value drops by <strong>50%</strong>. Never hold through weekend unless move is active.
     `;
-    stats = { maxProfit: "Unlimited", maxLoss: "$420", prob: "38%" };
+    maxLoss = Math.round(420 * qty);
+    maxProfit = "Unlimited";
+    winProb = "38%";
     curveType = "straddle";
   }
 
   // Update UI Elements
   nameLabel.textContent = strategy;
   textLabel.innerHTML = explanation;
-  profitLabel.textContent = stats.maxProfit;
-  lossLabel.textContent = stats.maxLoss;
-  probLabel.textContent = stats.prob;
+  profitLabel.textContent = maxProfit === "Unlimited" ? "Unlimited" : `$${maxProfit}`;
+  lossLabel.textContent = `$${maxLoss}`;
+  probLabel.textContent = winProb;
 
   // Draw PnL risk diagram
   drawWizPnlChart(curveType);

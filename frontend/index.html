@@ -206,6 +206,24 @@
                 <option value="42">Monthly Cycle (42 Days)</option>
               </select>
             </div>
+
+            <div class="setting-item">
+              <label for="wizQty">Quantity (Contracts)</label>
+              <input type="number" id="wizQty" value="1" min="1" max="100" style="width: 100%; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none;">
+            </div>
+
+            <div class="setting-item">
+              <label for="wizSpreadWidth">Spread Width ($)</label>
+              <input type="number" id="wizSpreadWidth" value="1.00" step="0.50" min="0.5" max="50" style="width: 100%; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none; margin-bottom: 8px;">
+              <div class="wiz-btn-group" id="wizSpreadBudgetsGroup" style="margin-top: 4px;">
+                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="50">0.5</button>
+                <button class="wiz-select-btn wiz-budget-preset-btn active" data-budget="100">1.0</button>
+                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="150">1.5</button>
+                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="200">2.0</button>
+                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="250">2.5</button>
+                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="500">5.0</button>
+              </div>
+            </div>
           </div>
 
           <!-- Right Panel: Recommendation Card -->
