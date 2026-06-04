@@ -1654,6 +1654,7 @@ function renderTechnicalChart(ticker, tab) {
             borderColor: colors,
             borderWidth: 1,
             barThickness: 10,
+            grouped: false,
             order: 2
           },
           {
@@ -1664,6 +1665,7 @@ function renderTechnicalChart(ticker, tab) {
             borderColor: colors,
             borderWidth: 1,
             barThickness: 2,
+            grouped: false,
             order: 3
           },
           {
