@@ -828,6 +828,8 @@ function renderOptionChain() {
     const dbSellCall = dbBuyCall ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyCall.strike), targetWidth, 1, 'CALL') : null;
 
     // Debit Put Spread (Bear Put): Buy -0.50 delta (ATM), Sell Put targetWidth below it
+    const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+    const dbSellPut = dbBuyPut ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyPut.strike), targetWidth, -1, 'PUT') : null;
         // Straddle (Breakout): Buy Call ~0.50, Buy Put ~-0.50
     const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
     const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');    
