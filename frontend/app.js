@@ -772,6 +772,30 @@ function renderOptionChain() {
       </tr>
     `).join("");
 
+    // Update spread width presets availability in Option Chain
+    const checkWidthAvailable = (w) => {
+      for (let i = 0; i < data.strikes.length; i++) {
+        const s1 = parseFloat(data.strikes[i].strike);
+        for (let j = i + 1; j < data.strikes.length; j++) {
+          const s2 = parseFloat(data.strikes[j].strike);
+          if (Math.abs(Math.abs(s1 - s2) - w) < 0.02) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const chainPresetBtns = document.querySelectorAll("#spreadBudgetsGroup .budget-preset-btn");
+    chainPresetBtns.forEach(btn => {
+      const budgetVal = parseFloat(btn.getAttribute("data-budget")) / 100;
+      if (checkWidthAvailable(budgetVal)) {
+        btn.classList.remove("width-unavailable");
+      } else {
+        btn.classList.add("width-unavailable");
+      }
+    });
+
     // Find preselected strikes for Spreads based on Delta parameters and configurable Spread Width
     const spreadLimitInput = document.getElementById("spreadLimitInput");
     const targetWidth = parseFloat(spreadLimitInput ? spreadLimitInput.value : 1.0) || 1.0;
@@ -804,12 +828,15 @@ function renderOptionChain() {
     const dbSellCall = dbBuyCall ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyCall.strike), targetWidth, 1, 'CALL') : null;
 
     // Debit Put Spread (Bear Put): Buy -0.50 delta (ATM), Sell Put targetWidth below it
-    const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
-    const dbSellPut = dbBuyPut ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyPut.strike), targetWidth, -1, 'PUT') : null;
-
-    // Straddle (Breakout): Buy Call ~0.50, Buy Put ~-0.50
+        // Straddle (Breakout): Buy Call ~0.50, Buy Put ~-0.50
     const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
-    const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+    const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');    
+    
+    function isWidthExact(shortStrike, buyStrike, targetWidth) {
+      if (!shortStrike || !buyStrike) return false;
+      const actualWidth = Math.abs(parseFloat(shortStrike.strike) - parseFloat(buyStrike.strike));
+      return Math.abs(actualWidth - targetWidth) < 0.02;
+    }
 
     const cards = [];
 
@@ -834,7 +861,8 @@ function renderOptionChain() {
         maxLoss: `$${maxRisk.toFixed(2)}`,
         premium: `+$${netCredit.toFixed(2)}`,
         collateral: `$${collateral.toFixed(0)}`,
-        legs: `Sell ${bpSellPut.strike}P / Buy ${bpBuyPut.strike}P`
+        legs: `Sell ${bpSellPut.strike}P / Buy ${bpBuyPut.strike}P`,
+        widthExact: isWidthExact(bpSellPut, bpBuyPut, targetWidth)
       });
     }
 
@@ -859,11 +887,12 @@ function renderOptionChain() {
         maxLoss: `$${maxRisk.toFixed(2)}`,
         premium: `+$${netCredit.toFixed(2)}`,
         collateral: `$${collateral.toFixed(0)}`,
-        legs: `Sell ${bcSellCall.strike}C / Buy ${bcBuyCall.strike}C`
+        legs: `Sell ${bcSellCall.strike}C / Buy ${bcBuyCall.strike}C`,
+        widthExact: isWidthExact(bcSellCall, bcBuyCall, targetWidth)
       });
     }
 
-    // 3. Bull Call Spread Card
+    // 3. Bull Call Debit Spread Card
     if (dbBuyCall && dbSellCall) {
       const buyCallPrem = parseFloat(dbBuyCall.callAsk);
       const sellCallPrem = parseFloat(dbSellCall.callBid);
@@ -883,11 +912,12 @@ function renderOptionChain() {
         maxLoss: `$${maxRisk.toFixed(2)}`,
         premium: `-$${netDebit.toFixed(2)}`,
         collateral: `$0 (Debit Paid)`,
-        legs: `Buy ${dbBuyCall.strike}C / Sell ${dbSellCall.strike}C`
+        legs: `Buy ${dbBuyCall.strike}C / Sell ${dbSellCall.strike}C`,
+        widthExact: isWidthExact(dbBuyCall, dbSellCall, targetWidth)
       });
     }
 
-    // 4. Bear Put Spread Card
+    // 4. Bear Put Debit Spread Card
     if (dbBuyPut && dbSellPut) {
       const buyPutPrem = parseFloat(dbBuyPut.putAsk);
       const sellPutPrem = parseFloat(dbSellPut.putBid);
@@ -907,7 +937,8 @@ function renderOptionChain() {
         maxLoss: `$${maxRisk.toFixed(2)}`,
         premium: `-$${netDebit.toFixed(2)}`,
         collateral: `$0 (Debit Paid)`,
-        legs: `Buy ${dbBuyPut.strike}P / Sell ${dbSellPut.strike}P`
+        legs: `Buy ${dbBuyPut.strike}P / Sell ${dbSellPut.strike}P`,
+        widthExact: isWidthExact(dbBuyPut, dbSellPut, targetWidth)
       });
     }
 
@@ -934,7 +965,8 @@ function renderOptionChain() {
         maxLoss: `$${maxRisk.toFixed(2)}`,
         premium: `+$${totalCredit.toFixed(2)}`,
         collateral: `$${collateral.toFixed(0)}`,
-        legs: `Sell ${bcSellCall.strike}C/Buy ${bcBuyCall.strike}C + Sell ${bpSellPut.strike}P/Buy ${bpBuyPut.strike}P`
+        legs: `Sell ${bcSellCall.strike}C/Buy ${bcBuyCall.strike}C + Sell ${bpSellPut.strike}P/Buy ${bpBuyPut.strike}P`,
+        widthExact: isWidthExact(bpSellPut, bpBuyPut, targetWidth) && isWidthExact(bcSellCall, bcBuyCall, targetWidth)
       });
     }
 
@@ -943,7 +975,7 @@ function renderOptionChain() {
       const callPrem = parseFloat(atmCall.callAsk);
       const putPrem = parseFloat(atmPut.putAsk);
       const totalCost = callPrem + putPrem;
-      const winProb = 40; // Straddle typically has lower raw win probability but high asymmetry
+      const winProb = 40; 
 
       cards.push({
         title: "ATM Breakout Straddle",
@@ -955,17 +987,19 @@ function renderOptionChain() {
         maxLoss: `$${(totalCost * 100).toFixed(2)}`,
         premium: `-$${totalCost.toFixed(2)}`,
         collateral: `$0 (Debit Paid)`,
-        legs: `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`
+        legs: `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`,
+        widthExact: true
       });
     }
 
     strategiesGrid.innerHTML = cards.map(c => `
-      <div class="best-bet-item hover-trigger">
+      <div class="best-bet-item hover-trigger ${c.widthExact ? '' : 'width-unavailable'}">
         <div class="bet-header">
           <div>
             <span class="bet-title">${c.title}</span>
             <div class="bet-thesis" style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; margin-top: 2px;">${c.type}</div>
             <div class="bet-strikes" style="margin-top: 6px; font-size: 11.5px; line-height: 1.3;">${c.strikes}</div>
+            ${c.widthExact ? '' : '<div style="color: var(--accent-negative); font-size: 10.5px; font-weight: 700; margin-top: 4px;">⚠️ WIDTH NOT AVAILABLE (CLOSEST SHOWN)</div>'}
           </div>
           <span class="bet-grade">${parseFloat(c.winProb) > 65 ? 'A+' : parseFloat(c.winProb) > 50 ? 'A' : 'B'}</span>
         </div>
@@ -1391,6 +1425,78 @@ function calculateWizardStrategy() {
 
   const wizSpreadWidthInput = document.getElementById("wizSpreadWidth");
   const width = parseFloat(wizSpreadWidthInput ? wizSpreadWidthInput.value : 1.0) || 1.0;
+
+  // Dynamically check spread availability for Wizard preset buttons and selected width
+  const expirySelect = document.getElementById("wizDate");
+  const expiryDays = parseInt(expirySelect ? expirySelect.value : 14) || 14;
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() + expiryDays);
+  if (expiryDays === 7 || expiryDays === 14) {
+    const currentDay = targetDate.getDay();
+    const daysToFriday = (5 - currentDay + 7) % 7;
+    targetDate.setDate(targetDate.getDate() + daysToFriday);
+  }
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const expiryStr = `${months[targetDate.getMonth()]} ${targetDate.getDate()}, ${targetDate.getFullYear()}`;
+
+  fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiryStr)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
+  .then(res => res.json())
+  .then(data => {
+    if (!data.strikes || data.strikes.length === 0) return;
+    
+    const checkWidthAvailable = (w) => {
+      for (let i = 0; i < data.strikes.length; i++) {
+        const s1 = parseFloat(data.strikes[i].strike);
+        for (let j = i + 1; j < data.strikes.length; j++) {
+          const s2 = parseFloat(data.strikes[j].strike);
+          if (Math.abs(Math.abs(s1 - s2) - w) < 0.02) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    // Tint Wizard preset buttons
+    const wizPresetBtns = document.querySelectorAll("#wizSpreadBudgetsGroup .wiz-budget-preset-btn");
+    wizPresetBtns.forEach(btn => {
+      const budgetVal = parseFloat(btn.getAttribute("data-budget")) / 100;
+      if (checkWidthAvailable(budgetVal)) {
+        btn.classList.remove("width-unavailable");
+      } else {
+        btn.classList.add("width-unavailable");
+      }
+    });
+
+    // Tint Wizard recommendation card & warning label
+    const recCard = document.querySelector(".wizard-rec-card");
+    let warningEl = document.getElementById("wizWidthWarning");
+    const currentWidthAvailable = checkWidthAvailable(width);
+    
+    if (recCard) {
+      if (!currentWidthAvailable) {
+        recCard.classList.add("width-unavailable");
+        if (!warningEl) {
+          warningEl = document.createElement("div");
+          warningEl.id = "wizWidthWarning";
+          warningEl.style = "color: var(--accent-negative); font-size: 11px; font-weight: 700; margin-top: 8px;";
+          warningEl.textContent = "⚠️ WIDTH NOT AVAILABLE (CLOSEST SHOWN)";
+          const badge = document.getElementById("recStrategyName");
+          if (badge) {
+            badge.parentNode.insertBefore(warningEl, badge.nextSibling);
+          } else {
+            recCard.appendChild(warningEl);
+          }
+        }
+      } else {
+        recCard.classList.remove("width-unavailable");
+        if (warningEl) {
+          warningEl.remove();
+        }
+      }
+    }
+  })
+  .catch(err => console.error("Error checking wizard spread width availability:", err));
 
   let strategy = "Bull Call Debit Spread";
   let explanation = "";
@@ -1995,35 +2101,19 @@ function renderTechnicalChart(ticker, tab) {
 }
 
 // ==========================================================================
-// BEGINNER STOCK BASKETS CONFIGURATION
+// POPULAR TICKERS CONFIGURATION
 // ==========================================================================
-const optionBaskets = {
-  cheap: ["SOFI", "F", "PLTR", "PFE"],
-  medium: ["AMD", "INTC", "BAC", "VALE"],
-  high: ["TSLA", "AAPL", "MSFT", "NVDA"]
-};
+const popularTickers = ["TSLA", "AAPL", "MSFT", "NVDA", "AMD", "PLTR", "SOFI"];
 
 function initBeginnerBaskets() {
-  const basketButtons = document.querySelectorAll("#beginnerBasketsGroup .basket-btn");
-  basketButtons.forEach(btn => {
-    btn.addEventListener("click", () => {
-      basketButtons.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      const basketName = btn.getAttribute("data-basket");
-      renderBasketTickers(basketName);
-    });
-  });
-  
-  renderBasketTickers("high");
+  renderPopularTickers();
 }
 
-function renderBasketTickers(basketName) {
+function renderPopularTickers() {
   const listContainer = document.getElementById("basketTickersList");
   if (!listContainer) return;
   
-  const tickers = optionBaskets[basketName] || [];
-  
-  listContainer.innerHTML = tickers.map(ticker => `
+  listContainer.innerHTML = popularTickers.map(ticker => `
     <button class="strategy-badge ticker-badge" style="cursor: pointer; margin-bottom: 0; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;" onclick="loadTickerFromBasket('${ticker}')">
       ${ticker}
     </button>
