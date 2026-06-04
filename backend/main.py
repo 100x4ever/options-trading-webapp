@@ -233,10 +233,9 @@ def get_alpaca_account(username: str, profile: str):
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
 
     if not api_key or not secret_key:
-        # Return fallback mock numbers if keys are unconfigured
         return {
-            "equity": "124582.40",
-            "buying_power": "48290.15",
+            "equity": "0.00",
+            "buying_power": "0.00",
             "is_mock": True
         }
 
@@ -249,10 +248,9 @@ def get_alpaca_account(username: str, profile: str):
             "is_mock": False
         }
     except Exception as e:
-        # Fallback to mock in case of failure, indicating connection status
         return {
-            "equity": "124582.40",
-            "buying_power": "48290.15",
+            "equity": "0.00",
+            "buying_power": "0.00",
             "is_mock": True,
             "error": str(e)
         }
@@ -272,11 +270,7 @@ def get_alpaca_positions(username: str, profile: str):
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
 
     if not api_key or not secret_key:
-        # Fallback mock positions
-        return [
-            { "ticker": "AAPL", "type": "Call", "strike": "185.00", "exp": "Jun 19", "qty": 2, "avg": "3.45", "mark": "4.10", "delta": "+0.55", "theta": "-0.18", "pnl": "+$130.00", "status": "positive" },
-            { "ticker": "TSLA", "type": "Put", "strike": "175.00", "exp": "Jun 12", "qty": 1, "avg": "4.20", "mark": "3.55", "delta": "-0.42", "theta": "-0.24", "pnl": "-$65.00", "status": "negative" }
-        ]
+        return []
 
     try:
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
@@ -333,10 +327,52 @@ def get_alpaca_positions(username: str, profile: str):
                 })
         return formatted_positions
     except Exception:
-        # Fallback on connection errors
-        return [
-            { "ticker": "AAPL", "type": "Call", "strike": "185.00", "exp": "Jun 19", "qty": 2, "avg": "3.45", "mark": "4.10", "delta": "+0.55", "theta": "-0.18", "pnl": "+$130.00", "status": "positive" }
-        ]
+        return []
+
+# Retrieve Live Alpaca Portfolio History
+@app.get("/api/portfolio/history")
+def get_portfolio_history(username: str, profile: str):
+    db = read_db()
+    user_state = db.get("users", {}).get(username.lower(), {}).get("state", {})
+    profile_data = user_state.get("profiles", {}).get(profile)
+    
+    if not profile_data:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    api_key = profile_data.get("alpacaApiKey")
+    secret_key = profile_data.get("alpacaSecretKey")
+    is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
+
+    if not api_key or not secret_key:
+        return {
+            "timestamp": [],
+            "equity": [],
+            "profit_loss": [],
+            "profit_loss_pct": []
+        }
+
+    try:
+        base_url = "https://api.alpaca.markets" if is_live else "https://paper-api.alpaca.markets"
+        headers = {
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": secret_key
+        }
+        res = requests.get(f"{base_url}/v2/account/portfolio/history?period=1M&timeframe=1D", headers=headers, timeout=5)
+        if res.status_code == 200:
+            return res.json()
+        return {
+            "timestamp": [],
+            "equity": [],
+            "profit_loss": [],
+            "profit_loss_pct": []
+        }
+    except Exception:
+        return {
+            "timestamp": [],
+            "equity": [],
+            "profit_loss": [],
+            "profit_loss_pct": []
+        }
 
 # Get Real Option Chain Data & Greeks for ANY Searched Ticker
 @app.get("/api/options/chain")

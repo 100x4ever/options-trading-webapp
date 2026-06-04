@@ -492,15 +492,16 @@ function renderDashboard() {
   // Fetch real-time account data
   fetch(`/api/account?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
-  .then(data => {
-    document.getElementById("navValue").textContent = `$${data.equity}`;
-    document.getElementById("buyingPower").textContent = `$${data.buying_power}`;
+  .then(accountData => {
+    const currentEquity = parseFloat(accountData.equity) || 0.0;
+    document.getElementById("navValue").textContent = `$${accountData.equity}`;
+    document.getElementById("buyingPower").textContent = `$${accountData.buying_power}`;
     
     // Manage sandbox connection indicator status
     const indicator = document.querySelector(".status-indicator");
     const statusText = document.querySelector(".status-text");
     if(indicator && statusText) {
-      if (data.is_mock) {
+      if (accountData.is_mock) {
         indicator.style.backgroundColor = "#ffb800"; // yellow warning
         indicator.style.boxShadow = "0 0 8px #ffb800";
         statusText.textContent = "Offline / Sandbox Demo";
@@ -510,54 +511,86 @@ function renderDashboard() {
         statusText.textContent = state.profiles[state.activeProfile].alpacaLive ? "Alpaca LIVE" : "Alpaca Sandbox";
       }
     }
+
+    // Now, fetch portfolio history
+    fetch(`/api/portfolio/history?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
+    .then(res => res.json())
+    .then(historyData => {
+      const ctx = document.getElementById("performanceChart").getContext("2d");
+      if (perfChart) perfChart.destroy();
+
+      let labels = [];
+      let dataPoints = [];
+
+      // Parse Alpaca timestamps and equity
+      if (historyData.timestamp && historyData.timestamp.length > 0) {
+        // Convert timestamps to clean dates
+        labels = historyData.timestamp.map(ts => {
+          const d = new Date(ts * 1000);
+          return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        });
+        dataPoints = historyData.equity;
+      } else {
+        // Fallback flat line representing current equity
+        labels = ["Start", "Today"];
+        dataPoints = [currentEquity, currentEquity];
+      }
+
+      perfChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: "Net Value ($)",
+            data: dataPoints,
+            borderColor: "#00f0ff",
+            backgroundColor: "rgba(0, 240, 255, 0.05)",
+            tension: 0.4,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: { grid: { color: "rgba(255, 255, 255, 0.05)" }, ticks: { color: "rgba(255,255,255,0.6)" } },
+            y: { grid: { color: "rgba(255, 255, 255, 0.05)" }, ticks: { color: "rgba(255,255,255,0.6)" } }
+          }
+        }
+      });
+    })
+    .catch(err => console.error("Error drawing portfolio history chart:", err));
   })
   .catch(err => console.error("Error fetching account balance:", err));
 
-  const ctx = document.getElementById("performanceChart").getContext("2d");
-  if (perfChart) perfChart.destroy();
-  
-  perfChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: ["May 29", "May 30", "June 1", "June 2", "June 3", "Today"],
-      datasets: [{
-        label: "Net Value ($)",
-        data: [118200, 119500, 121400, 120100, 122900, 124582.4],
-        borderColor: "#00f0ff",
-        backgroundColor: "rgba(0, 240, 255, 0.05)",
-        tension: 0.4,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        x: { grid: { color: "rgba(255, 255, 255, 0.05)" }, ticks: { color: "rgba(255,255,255,0.6)" } },
-        y: { grid: { color: "rgba(255, 255, 255, 0.05)" }, ticks: { color: "rgba(255,255,255,0.6)" } }
-      }
-    }
-  });
-
+  // Fetch active strategy spreads from real positions
   const strategySummary = document.getElementById("strategySummary");
-  const strategies = [
-    { name: "AAPL Iron Condor", expiry: "Jun 12, 2026", pnl: "+$420.00", status: "positive" },
-    { name: "TSLA Vertical Call Spread", expiry: "Jun 19, 2026", pnl: "-$125.00", status: "negative" },
-    { name: "SPY Naked Put (0DTE)", expiry: "Today", pnl: "+$850.00", status: "positive" }
-  ];
-
-  strategySummary.innerHTML = strategies.map(str => `
-    <div class="strategy-item hover-trigger">
-      <div class="strategy-info">
-        <span class="strategy-title">${str.name}</span>
-        <span class="strategy-meta">Expires ${str.expiry}</span>
-      </div>
-      <span class="strategy-pnl ${str.status}">${str.pnl}</span>
-    </div>
-  `).join("");
+  if (strategySummary) {
+    fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
+    .then(res => res.json())
+    .then(positions => {
+      if (positions.length === 0) {
+        strategySummary.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 13px;">No active option/stock positions.</div>`;
+        return;
+      }
+      
+      strategySummary.innerHTML = positions.map(pos => `
+        <div class="strategy-item hover-trigger">
+          <div class="strategy-info">
+            <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
+            <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty}</span>
+          </div>
+          <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
+        </div>
+      `).join("");
+    })
+    .catch(err => {
+      strategySummary.innerHTML = `<div style="text-align: center; color: var(--accent-negative); padding: 16px; font-size: 13px;">Failed to fetch active strategies.</div>`;
+    });
+  }
 }
 
 function renderPositions() {
