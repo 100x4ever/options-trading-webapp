@@ -66,6 +66,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Initialize Technical Charts & Beginner Baskets
   initTechnicalCharts();
   initBeginnerBaskets();
+  initSpreadBudgets();
 });
 
 // Authentication Controller
@@ -991,9 +992,24 @@ window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk)
   const qtyInput = document.getElementById("orderQtyInput");
   const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
   
-  // Clean pricing numeric values for calculations
-  const rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
-  const rawRisk = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
+  const spreadLimitInput = document.getElementById("spreadLimitInput");
+  const isCredit = premium.startsWith('+');
+  let rawPrem = parseFloat(spreadLimitInput ? spreadLimitInput.value : 0.0);
+  if (isNaN(rawPrem)) {
+    rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
+  }
+  const finalPriceSymbol = isCredit ? '+' : '-';
+  const premiumDisplay = `${finalPriceSymbol}$${rawPrem.toFixed(2)}`;
+  
+  const rawRiskOriginal = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
+  const rawPremOriginal = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
+  let estimatedRisk = rawRiskOriginal;
+  if (isCredit && rawPremOriginal > 0) {
+    const width = rawRiskOriginal + rawPremOriginal * 100;
+    estimatedRisk = Math.max(50, width - rawPrem * 100);
+  } else if (!isCredit) {
+    estimatedRisk = rawPrem * 100;
+  }
   
   showHoverPanel(
     `Execute Spread Order`,
@@ -1003,10 +1019,11 @@ window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk)
         <strong>Asset:</strong> ${ticker} (${expiry})<br>
         <strong>Strikes:</strong> ${strikes}<br>
         <strong>Quantity:</strong> ${qty} contract(s)<br>
-        <strong>Est Net Premium:</strong> ${premium.startsWith('+') || premium.startsWith('-') ? premium[0] : ''}$${Math.abs(rawPrem * 100 * qty).toFixed(2)} ($${rawPrem.toFixed(2)} each)<br>
-        <strong>Collateral/Max Risk:</strong> $${(rawRisk * qty).toFixed(2)}
+        <strong>Limit Price per Spread:</strong> ${premiumDisplay} each<br>
+        <strong>Est Total Net Premium:</strong> ${finalPriceSymbol}$${Math.abs(rawPrem * 100 * qty).toFixed(2)}<br>
+        <strong>Collateral/Max Risk:</strong> $${(estimatedRisk * qty).toFixed(2)}
       </div>
-      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}', ${qty})">
+      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premiumDisplay}', '${expiry}', ${qty})">
         Transmit Spread Order
       </button>
     `
@@ -1834,6 +1851,23 @@ window.loadTickerFromBasket = function(ticker) {
     tickerInput.value = ticker;
     renderOptionChain();
   }
+}
+
+function initSpreadBudgets() {
+  const budgetButtons = document.querySelectorAll("#spreadBudgetsGroup .budget-preset-btn");
+  const spreadLimitInput = document.getElementById("spreadLimitInput");
+  
+  budgetButtons.forEach(btn => {
+    btn.addEventListener("click", () => {
+      budgetButtons.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const budgetVal = parseFloat(btn.getAttribute("data-budget"));
+      if (spreadLimitInput) {
+        spreadLimitInput.value = (budgetVal / 100).toFixed(2);
+        spreadLimitInput.dispatchEvent(new Event('change'));
+      }
+    });
+  });
 }
 
 

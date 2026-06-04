@@ -172,7 +172,8 @@ def register(auth: AuthModel):
                 "lampSpeed": "1.0",
                 "alpacaApiKey": "",
                 "alpacaSecretKey": "",
-                "alpacaLive": False
+                "alpacaLive": False,
+                "active_trades": []
             }
         },
         "activeProfile": "Default User"
@@ -211,7 +212,9 @@ def get_profiles(username: str):
 @app.post("/api/profiles")
 def save_profiles(state: StateModel, username: str):
     db = read_db()
-    username_lower = username.lower()
+    username_lower = username.lower().strip()
+    if username_lower == "gang":
+        raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
     if username_lower not in db.get("users", {}):
         raise HTTPException(status_code=404, detail="User not found")
         
@@ -488,6 +491,8 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
 # Trade Order routing via Alpaca Trading API Client
 @app.post("/api/trade")
 def execute_trade(trade: TradeModel, username: str):
+    if username.lower().strip() == "gang":
+        raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
     db = read_db()
     user_state = db.get("users", {}).get(username.lower(), {}).get("state", {})
     profile_data = user_state.get("profiles", {}).get(trade.profile)
@@ -565,6 +570,35 @@ def execute_trade(trade: TradeModel, username: str):
                 legs=mleg_legs
             )
             order = trading_client.submit_order(order_request)
+            
+            # Record successful trade to DB
+            username_lower = username.lower()
+            if "active_trades" not in profile_data:
+                profile_data["active_trades"] = []
+            
+            registered_legs = []
+            for leg in order_legs:
+                osi_symbol = format_osi_symbol(trade.ticker, expiry_yymmdd, leg["type"], leg["strike"])
+                registered_legs.append({
+                    "symbol": osi_symbol,
+                    "side": "buy" if leg["side"] == OrderSide.BUY else "sell",
+                    "strike": leg["strike"],
+                    "type": leg["type"]
+                })
+                
+            profile_data["active_trades"].append({
+                "ticker": trade.ticker.upper(),
+                "strategy": trade.type,
+                "strike_str": trade.strike,
+                "entry_price": price_val,
+                "qty": trade.qty,
+                "expiry": trade.expiry,
+                "legs": registered_legs,
+                "order_id": order.id
+            })
+            db["users"][username_lower]["state"] = user_state
+            write_db(db)
+
             return {
                 "status": "filled",
                 "order_id": order.id,
@@ -583,6 +617,30 @@ def execute_trade(trade: TradeModel, username: str):
                 limit_price=price_val
             )
             order = trading_client.submit_order(order_request)
+            
+            # Record successful trade to DB
+            username_lower = username.lower()
+            if "active_trades" not in profile_data:
+                profile_data["active_trades"] = []
+            
+            profile_data["active_trades"].append({
+                "ticker": trade.ticker.upper(),
+                "strategy": trade.type,
+                "strike_str": trade.strike,
+                "entry_price": price_val,
+                "qty": trade.qty,
+                "expiry": trade.expiry,
+                "legs": [{
+                    "symbol": osi_symbol,
+                    "side": "buy" if leg["side"] == OrderSide.BUY else "sell",
+                    "strike": leg["strike"],
+                    "type": leg["type"]
+                }],
+                "order_id": order.id
+            })
+            db["users"][username_lower]["state"] = user_state
+            write_db(db)
+
             return {
                 "status": "filled",
                 "order_id": order.id,
@@ -760,6 +818,177 @@ def get_chart_technical(ticker: str):
         
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error generating technical indicators: {str(e)}")
+
+# Background daemon to monitor open options positions and auto-close on threshold breach
+import threading
+import time
+
+def monitor_positions_loop():
+    print("Starting AuraTrade Options Position Monitor Daemon...")
+    while True:
+        try:
+            db = read_db()
+            users = db.get("users", {})
+            db_changed = False
+            
+            for username, user_data in users.items():
+                state = user_data.get("state", {})
+                profiles = state.get("profiles", {})
+                
+                for profile_name, profile_data in profiles.items():
+                    active_trades = profile_data.get("active_trades", [])
+                    if not active_trades:
+                        continue
+                    
+                    api_key = profile_data.get("alpacaApiKey")
+                    secret_key = profile_data.get("alpacaSecretKey")
+                    is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
+                    
+                    if not api_key or not secret_key:
+                        continue
+                    
+                    try:
+                        trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+                        alpaca_positions = trading_client.get_all_positions()
+                    except Exception as err:
+                        print(f"[{username}/{profile_name}] Alpaca connection failed in monitor: {err}")
+                        continue
+                    
+                    pos_map = {pos.symbol: pos for pos in alpaca_positions}
+                    trades_to_keep = []
+                    profile_changed = False
+                    
+                    for trade in active_trades:
+                        legs = trade.get("legs", [])
+                        legs_present = []
+                        missing_leg = False
+                        
+                        for leg in legs:
+                            symbol = leg["symbol"]
+                            if symbol in pos_map:
+                                legs_present.append(pos_map[symbol])
+                            else:
+                                missing_leg = True
+                                break
+                        
+                        if missing_leg:
+                            # Discard trade if legs are missing (already closed or expired)
+                            print(f"[{username}/{profile_name}] Trade strategy {trade['strategy']} for {trade['ticker']} is missing legs. Clearing from registry.")
+                            profile_changed = True
+                            db_changed = True
+                            continue
+                        
+                        # Calculate current net cost/value to close using positions mark prices
+                        net_value = 0.0
+                        for leg in legs:
+                            symbol = leg["symbol"]
+                            pos = pos_map[symbol]
+                            mark = float(pos.current_price)
+                            side = leg["side"]
+                            if side == "buy": # we sell to close (receive credit)
+                                net_value += mark
+                            else: # we buy to close (pay debit)
+                                net_value -= mark
+                        
+                        entry_price = float(trade["entry_price"])
+                        strategy_type = trade["strategy"].lower()
+                        
+                        is_credit = "credit" in strategy_type or "condor" in strategy_type
+                        is_debit = "debit" in strategy_type or "straddle" in strategy_type
+                        
+                        trigger_close = False
+                        reason = ""
+                        
+                        if is_credit:
+                            # net_value = long - short (negative). current spread cost = short - long (-net_value)
+                            current_cost = -net_value
+                            profit_target = entry_price * 0.50
+                            stop_loss = entry_price * 2.00
+                            
+                            if current_cost <= profit_target:
+                                trigger_close = True
+                                reason = f"Take Profit (+50% credit): cost is ${current_cost:.2f} <= target ${profit_target:.2f}"
+                            elif current_cost >= stop_loss:
+                                trigger_close = True
+                                reason = f"Stop Loss (-100% loss): cost is ${current_cost:.2f} >= stop ${stop_loss:.2f}"
+                                
+                        elif is_debit:
+                            # net_value = long - short (positive). current spread value = net_value
+                            current_value = net_value
+                            profit_target = entry_price * 1.50
+                            stop_loss = entry_price * 0.50
+                            
+                            if current_value >= profit_target:
+                                trigger_close = True
+                                reason = f"Take Profit (+50% ROI): value is ${current_value:.2f} >= target ${profit_target:.2f}"
+                            elif current_value <= stop_loss:
+                                trigger_close = True
+                                reason = f"Stop Loss (-50% loss): value is ${current_value:.2f} <= stop ${stop_loss:.2f}"
+                        
+                        if trigger_close:
+                            print(f"[{username}/{profile_name}] Triggered Auto-Close on {trade['ticker']} {trade['strategy']} due to: {reason}!")
+                            try:
+                                closing_legs = []
+                                expiry_yymmdd = format_date_to_yymmdd(trade["expiry"])
+                                for leg in legs:
+                                    reverse_side = OrderSide.SELL if leg["side"] == "buy" else OrderSide.BUY
+                                    osi_symbol = format_osi_symbol(trade["ticker"], expiry_yymmdd, leg["type"], float(leg["strike"]))
+                                    closing_legs.append(
+                                        OptionLegRequest(
+                                            symbol=osi_symbol,
+                                            side=reverse_side,
+                                            ratio_qty=1
+                                        )
+                                    )
+                                
+                                # Set close order limit price with execution facilitation buffer
+                                if is_credit:
+                                    close_price_limit = round(current_cost + 0.05, 2)
+                                else:
+                                    close_price_limit = max(0.05, round(current_value - 0.05, 2))
+                                    
+                                if len(closing_legs) > 1:
+                                    order_request = LimitOrderRequest(
+                                        qty=trade["qty"],
+                                        limit_price=close_price_limit,
+                                        order_class=OrderClass.MLEG,
+                                        time_in_force=TimeInForce.DAY,
+                                        legs=closing_legs
+                                    )
+                                else:
+                                    order_request = LimitOrderRequest(
+                                        symbol=closing_legs[0].symbol,
+                                        qty=trade["qty"],
+                                        side=closing_legs[0].side,
+                                        time_in_force=TimeInForce.DAY,
+                                        limit_price=close_price_limit
+                                    )
+                                    
+                                trading_client.submit_order(order_request)
+                                print(f"[{username}/{profile_name}] Successfully submitted closing order for {trade['ticker']}.")
+                                profile_changed = True
+                                db_changed = True
+                            except Exception as close_err:
+                                print(f"[{username}/{profile_name}] Failed to place close order: {close_err}")
+                                trades_to_keep.append(trade)
+                        else:
+                            trades_to_keep.append(trade)
+                            
+                    if profile_changed:
+                        profile_data["active_trades"] = trades_to_keep
+                        
+            if db_changed:
+                write_db(db)
+                
+        except Exception as loop_err:
+            print(f"Error in position monitor loop: {loop_err}")
+            
+        time.sleep(60)
+
+@app.on_event("startup")
+def startup_event():
+    t = threading.Thread(target=monitor_positions_loop, daemon=True)
+    t.start()
 
 # Serve Frontend static assets
 @app.get("/")

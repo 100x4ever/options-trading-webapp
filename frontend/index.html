@@ -323,10 +323,23 @@
           </div>
           <div class="control-group">
             <label for="orderQtyInput">Quantity (Contracts)</label>
-            <input type="number" id="orderQtyInput" value="1" min="1" max="100" style="width: 140px; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none;">
+            <input type="number" id="orderQtyInput" value="1" min="1" max="100" style="width: 120px; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none;">
+          </div>
+          <div class="control-group">
+            <label for="spreadLimitInput">Spread Value (Limit Price)</label>
+            <input type="number" id="spreadLimitInput" value="1.00" step="0.05" min="0.01" max="100" style="width: 140px; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none;">
+          </div>
+          <div class="control-group" style="flex: 1; min-width: 250px;">
+            <label>Spread Budget Presets</label>
+            <div class="wiz-btn-group" id="spreadBudgetsGroup" style="margin-top: 4px;">
+              <button class="wiz-select-btn budget-preset-btn" data-budget="50">$50 (0.50)</button>
+              <button class="wiz-select-btn budget-preset-btn active" data-budget="100">$100 (1.00)</button>
+              <button class="wiz-select-btn budget-preset-btn" data-budget="250">$250 (2.50)</button>
+              <button class="wiz-select-btn budget-preset-btn" data-budget="500">$500 (5.00)</button>
+            </div>
           </div>
           <div class="control-group" style="flex: 1; min-width: 280px;">
-            <label>Beginner Stock Baskets (Select Limit/Risk)</label>
+            <label>Stock Baskets (Underlying Price)</label>
             <div class="wiz-btn-group" id="beginnerBasketsGroup" style="margin-top: 4px;">
               <button class="wiz-select-btn basket-btn" data-basket="cheap">Cheap ($40-$70)</button>
               <button class="wiz-select-btn basket-btn" data-basket="medium">Medium ($80-$120)</button>
