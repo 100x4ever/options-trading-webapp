@@ -5,6 +5,8 @@ import uuid
 import hashlib
 import re
 import math
+import threading
+import time
 from datetime import date
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -158,6 +160,11 @@ def register(auth: AuthModel):
     if username in db.get("users", {}):
         raise HTTPException(status_code=400, detail="Username already exists")
     
+    # Grab background system flags if they are already wired to the environment host
+    env_key = os.environ.get("ALPACA_API_KEY", "")
+    env_secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    env_live = check_is_live(env_key, False)
+
     default_state = {
         "profiles": {
             "Default User": {
@@ -170,9 +177,9 @@ def register(auth: AuthModel):
                 "blobColor3": "#7000ff",
                 "blobColor4": "#ffb800",
                 "lampSpeed": "1.0",
-                "alpacaApiKey": "",
-                "alpacaSecretKey": "",
-                "alpacaLive": False,
+                "alpacaApiKey": env_key,
+                "alpacaSecretKey": env_secret,
+                "alpacaLive": env_live,
                 "active_trades": []
             }
         },
@@ -232,8 +239,8 @@ def get_alpaca_account(username: str, profile: str):
     if not profile_data:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    api_key = profile_data.get("alpacaApiKey")
-    secret_key = profile_data.get("alpacaSecretKey")
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
 
     if not api_key or not secret_key:
@@ -269,8 +276,8 @@ def get_alpaca_positions(username: str, profile: str):
     if not profile_data:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    api_key = profile_data.get("alpacaApiKey")
-    secret_key = profile_data.get("alpacaSecretKey")
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
 
     if not api_key or not secret_key:
@@ -285,7 +292,6 @@ def get_alpaca_positions(username: str, profile: str):
         
         for pos in positions:
             symbol = pos.symbol
-            # Check if option contract formatting is e.g. AAPL260619C00185000
             match = re.match(r'^([A-Z]{1,6})(\d{6})([CP])(\d{8})$', symbol)
             if match:
                 ticker, expiry_yymmdd, side_char, strike_raw = match.groups()
@@ -310,7 +316,6 @@ def get_alpaca_positions(username: str, profile: str):
             else:
                 other_positions.append(pos)
                 
-        # Group parsed options by (ticker, expiry_yymmdd)
         groups = {}
         for opt in parsed_options:
             key = (opt["ticker"], opt["expiry_yymmdd"])
@@ -325,7 +330,6 @@ def get_alpaca_positions(username: str, profile: str):
             legs.sort(key=lambda x: x["strike"])
             used_indices = set()
             
-            # 1. Search for Iron Condors (2 Calls and 2 Puts, same qty, opposite sides)
             i = 0
             while i < len(legs):
                 if i in used_indices:
@@ -333,7 +337,6 @@ def get_alpaca_positions(username: str, profile: str):
                     continue
                 q = legs[i]["qty"]
                 
-                # Find all unused candidate legs with same quantity
                 candidates = [idx for idx, leg in enumerate(legs) if idx not in used_indices and leg["qty"] == q]
                 if len(candidates) >= 4:
                     from itertools import combinations
@@ -343,7 +346,6 @@ def get_alpaca_positions(username: str, profile: str):
                         puts = [l for l in comb_legs if l["type"] == "PUT"]
                         calls = [l for l in comb_legs if l["type"] == "CALL"]
                         if len(puts) == 2 and len(calls) == 2:
-                            # Check that each side has 1 buy and 1 sell
                             if (puts[0]["side"] != puts[1]["side"]) and (calls[0]["side"] != calls[1]["side"]):
                                 puts.sort(key=lambda x: x["strike"])
                                 calls.sort(key=lambda x: x["strike"])
@@ -383,7 +385,6 @@ def get_alpaca_positions(username: str, profile: str):
                         continue
                 i += 1
                 
-            # 2. Search for Vertical Spreads (2 legs of same type, opposite sides, same qty)
             i = 0
             while i < len(legs):
                 if i in used_indices:
@@ -439,7 +440,6 @@ def get_alpaca_positions(username: str, profile: str):
                     continue
                 i += 1
                 
-            # 3. Remaining individual options
             for idx, leg in enumerate(legs):
                 if idx not in used_indices:
                     pos = leg["pos"]
@@ -462,7 +462,6 @@ def get_alpaca_positions(username: str, profile: str):
                         "status": "positive" if pnl_val >= 0 else "negative"
                     })
                     
-        # 4. Append Stock positions
         for pos in other_positions:
             pnl_val = float(pos.unrealized_pl)
             pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
@@ -494,8 +493,8 @@ def get_portfolio_history(username: str, profile: str):
     if not profile_data:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    api_key = profile_data.get("alpacaApiKey")
-    secret_key = profile_data.get("alpacaSecretKey")
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
 
     if not api_key or not secret_key:
@@ -536,13 +535,11 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
     user_state = db.get("users", {}).get(username.lower(), {}).get("state", {})
     profile_data = user_state.get("profiles", {}).get(profile, {})
     
-    api_key = profile_data.get("alpacaApiKey")
-    secret_key = profile_data.get("alpacaSecretKey")
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
     
     ticker_upper = ticker.strip().upper()
-    
-    # 1. Try fetching real-time price from Yahoo Finance (fast, key-free, and handles live keys without subscription errors)
     underlying_price = None
     try:
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}"
@@ -554,7 +551,6 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
     except Exception:
         pass
 
-    # 2. Try fetching from Alpaca as fallback
     if underlying_price is None and api_key and secret_key:
         try:
             from alpaca.data.historical import StockHistoricalDataClient
@@ -568,7 +564,6 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
         except Exception:
             pass
 
-    # 3. Final default fallback based on typical prices
     if underlying_price is None:
         if ticker_upper == "QQQ":
             underlying_price = 740.0
@@ -577,7 +572,6 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
         else:
             underlying_price = 180.0
 
-    # 2. Get Expiration & DTE (Days to Expiration)
     yymmdd = format_date_to_yymmdd(expiry)
     try:
         exp_date = date(2000 + int(yymmdd[0:2]), int(yymmdd[2:4]), int(yymmdd[4:6]))
@@ -586,10 +580,9 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
         dte = 10
         
     t = dte / 365.0
-    r = 0.045 # Risk-free rate
-    sigma = 0.22 # Implied Volatility
+    r = 0.045 
+    sigma = 0.22 
     
-    # Choose Strike intervals dynamically based on price level
     if underlying_price > 500:
         step = 10
     elif underlying_price > 150:
@@ -599,18 +592,14 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
     else:
         step = 1
         
-    # Generate 5 strikes below and 5 strikes above
     atm_strike = round(underlying_price / step) * step
     strikes_list = [atm_strike + i * step for i in range(-4, 5)]
     
     strikes_data = []
     for strike in strikes_list:
-        # Call Greeks
         c_greeks = calculate_greeks(underlying_price, strike, t, r, sigma, "call")
-        # Put Greeks
         p_greeks = calculate_greeks(underlying_price, strike, t, r, sigma, "put")
         
-        # Bids / Asks spreads: Bid is slightly below price, Ask is slightly above
         spread = max(0.02, round(c_greeks["price"] * 0.03, 2))
         call_bid = max(0.01, round(c_greeks["price"] - spread/2, 2))
         call_ask = round(c_greeks["price"] + spread/2, 2)
@@ -651,8 +640,8 @@ def execute_trade(trade: TradeModel, username: str):
     if not profile_data:
         raise HTTPException(status_code=404, detail="Active profile configuration not found")
 
-    api_key = profile_data.get("alpacaApiKey")
-    secret_key = profile_data.get("alpacaSecretKey")
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
 
     if not api_key or not secret_key:
@@ -661,13 +650,8 @@ def execute_trade(trade: TradeModel, username: str):
             detail="Alpaca credentials are empty. Open the Setup & Themes panel and fill in your Key ID & Secret."
         )
 
-    # 1. Parse Expiration Date to YYMMDD
     expiry_yymmdd = format_date_to_yymmdd(trade.expiry)
-
-    # 2. Extract multi-leg option orders sequential execution or single contract
     order_legs = []
-    
-    # Try parsing patterns like: "Sell 445P / Buy 440P" or "Sell 465C/Buy 470C + Sell 445P/Buy 440P"
     legs_matched = re.findall(r'(Sell|Buy)\s+(\d+(?:\.\d+)?)\s*([CP])', trade.strike, re.IGNORECASE)
     
     if legs_matched:
@@ -678,28 +662,24 @@ def execute_trade(trade: TradeModel, username: str):
                 "type": "CALL" if type_char.upper() == "C" else "PUT"
             })
     else:
-        # Fallback to single leg option trade from chain (e.g. Strike = "185.00", type = "CALL")
         try:
             strike_clean = trade.strike.replace('$', '').strip()
             strike_val = float(re.search(r'(\d+(?:\.\d+)?)', strike_clean).group(1))
             order_legs.append({
-                "side": OrderSide.BUY, # Defaults to long purchase in option chain picker
+                "side": OrderSide.BUY, 
                 "strike": strike_val,
                 "type": "CALL" if "call" in trade.type.lower() else "PUT"
             })
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Could not parse strike structure: {str(e)}")
 
-    # 3. Place option orders to Alpaca Client
     try:
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
-        placed_orders = []
         
-        # Calculate limit price per contract if executing multi-legs (simple split or proportional logic)
         try:
             price_val = float(trade.price.replace('$', '').replace('+', '').strip())
         except Exception:
-            price_val = 1.00 # default fallback
+            price_val = 1.00 
             
         if len(order_legs) > 1:
             mleg_legs = []
@@ -722,7 +702,6 @@ def execute_trade(trade: TradeModel, username: str):
             )
             order = trading_client.submit_order(order_request)
             
-            # Record successful trade to DB
             username_lower = username.lower()
             if "active_trades" not in profile_data:
                 profile_data["active_trades"] = []
@@ -745,14 +724,14 @@ def execute_trade(trade: TradeModel, username: str):
                 "qty": trade.qty,
                 "expiry": trade.expiry,
                 "legs": registered_legs,
-                "order_id": order.id
+                "order_id": str(order.id)  # FIXED: Explicitly string-cast UUID to avoid JSON errors
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
 
             return {
                 "status": "filled",
-                "order_id": order.id,
+                "order_id": str(order.id),
                 "legs_count": len(mleg_legs),
                 "message": f"Successfully placed multi-leg order spread to Alpaca API.",
                 "is_sandbox": not is_live
@@ -769,7 +748,6 @@ def execute_trade(trade: TradeModel, username: str):
             )
             order = trading_client.submit_order(order_request)
             
-            # Record successful trade to DB
             username_lower = username.lower()
             if "active_trades" not in profile_data:
                 profile_data["active_trades"] = []
@@ -787,14 +765,14 @@ def execute_trade(trade: TradeModel, username: str):
                     "strike": leg["strike"],
                     "type": leg["type"]
                 }],
-                "order_id": order.id
+                "order_id": str(order.id)  # FIXED: Explicitly string-cast UUID to avoid JSON errors
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
 
             return {
                 "status": "filled",
-                "order_id": order.id,
+                "order_id": str(order.id),
                 "legs_count": 1,
                 "message": f"Successfully placed options order to Alpaca API.",
                 "is_sandbox": not is_live
@@ -907,7 +885,7 @@ def calculate_stochastic_d(highs: list, lows: list, closes: list, k_period: int,
         d_values[i] = round(sum(k_values[i - d_period + 1 : i + 1]) / d_period, 2)
     return d_values
 
-# Fetch 1h Candlestick Chart Data & Technical Indicators (HMA, Supertrend, Stochastics)
+# Fetch 1h Candlestick Chart Data & Technical Indicators
 @app.get("/api/chart/technical")
 def get_chart_technical(ticker: str):
     ticker_upper = ticker.strip().upper()
@@ -928,7 +906,6 @@ def get_chart_technical(ticker: str):
         lows = quotes["low"]
         closes = quotes["close"]
         
-        # Clean data (remove None values if any)
         clean_timestamps = []
         clean_opens = []
         clean_highs = []
@@ -947,7 +924,6 @@ def get_chart_technical(ticker: str):
         if len(clean_closes) < 45:
             raise HTTPException(status_code=400, detail="Not enough bar history to compute indicators.")
             
-        # Calculate indicator overlays
         hma30 = calculate_hma(clean_closes, 30)
         supertrend, direction = calculate_supertrend(clean_highs, clean_lows, clean_closes, 12, 2.2)
         stoch14_4d = calculate_stochastic_d(clean_highs, clean_lows, clean_closes, 14, 4)
@@ -971,9 +947,6 @@ def get_chart_technical(ticker: str):
         raise HTTPException(status_code=400, detail=f"Error generating technical indicators: {str(e)}")
 
 # Background daemon to monitor open options positions and auto-close on threshold breach
-import threading
-import time
-
 def monitor_positions_loop():
     print("Starting AuraTrade Options Position Monitor Daemon...")
     while True:
@@ -991,8 +964,8 @@ def monitor_positions_loop():
                     if not active_trades:
                         continue
                     
-                    api_key = profile_data.get("alpacaApiKey")
-                    secret_key = profile_data.get("alpacaSecretKey")
+                    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+                    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
                     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
                     
                     if not api_key or not secret_key:
@@ -1023,22 +996,20 @@ def monitor_positions_loop():
                                 break
                         
                         if missing_leg:
-                            # Discard trade if legs are missing (already closed or expired)
                             print(f"[{username}/{profile_name}] Trade strategy {trade['strategy']} for {trade['ticker']} is missing legs. Clearing from registry.")
                             profile_changed = True
                             db_changed = True
                             continue
                         
-                        # Calculate current net cost/value to close using positions mark prices
                         net_value = 0.0
                         for leg in legs:
                             symbol = leg["symbol"]
                             pos = pos_map[symbol]
                             mark = float(pos.current_price)
                             side = leg["side"]
-                            if side == "buy": # we sell to close (receive credit)
+                            if side == "buy": 
                                 net_value += mark
-                            else: # we buy to close (pay debit)
+                            else: 
                                 net_value -= mark
                         
                         entry_price = float(trade["entry_price"])
@@ -1051,7 +1022,6 @@ def monitor_positions_loop():
                         reason = ""
                         
                         if is_credit:
-                            # net_value = long - short (negative). current spread cost = short - long (-net_value)
                             current_cost = -net_value
                             profit_target = entry_price * 0.50
                             stop_loss = entry_price * 2.00
@@ -1064,7 +1034,6 @@ def monitor_positions_loop():
                                 reason = f"Stop Loss (-100% loss): cost is ${current_cost:.2f} >= stop ${stop_loss:.2f}"
                                 
                         elif is_debit:
-                            # net_value = long - short (positive). current spread value = net_value
                             current_value = net_value
                             profit_target = entry_price * 1.50
                             stop_loss = entry_price * 0.50
@@ -1092,7 +1061,6 @@ def monitor_positions_loop():
                                         )
                                     )
                                 
-                                # Set close order limit price with execution facilitation buffer
                                 if is_credit:
                                     close_price_limit = round(current_cost + 0.05, 2)
                                 else:
@@ -1115,8 +1083,8 @@ def monitor_positions_loop():
                                         limit_price=close_price_limit
                                     )
                                     
-                                trading_client.submit_order(order_request)
-                                print(f"[{username}/{profile_name}] Successfully submitted closing order for {trade['ticker']}.")
+                                closing_order = trading_client.submit_order(order_request)
+                                print(f"[{username}/{profile_name}] Successfully submitted closing order {str(closing_order.id)} for {trade['ticker']}.")
                                 profile_changed = True
                                 db_changed = True
                             except Exception as close_err:
