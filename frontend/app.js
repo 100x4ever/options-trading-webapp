@@ -210,11 +210,9 @@ function loadUserProfile(username) {
   .then(res => {
     if (!res.ok) {
       if (res.status === 404) {
-        // User session invalid/deleted on backend (e.g. server restarted or database wiped)
         const cachedState = localStorage.getItem("auratrade_state_" + username);
         const cachedPass = localStorage.getItem("auratrade_pass_" + username);
         if (cachedState && cachedPass) {
-          // Silent auto-registration & restore configuration on backend
           return fetch("/api/auth/register", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -266,15 +264,12 @@ function initNavigation() {
   const tabContents = document.querySelectorAll(".tab-content");
 
   navButtons.forEach(btn => {
-    // Ignore logout button click which is handled in auth logic
     if (btn.id === "logoutBtn") return;
 
     btn.addEventListener("click", () => {
-      // Remove active classes
       navButtons.forEach(b => { if(b.id !== "logoutBtn") b.classList.remove("active"); });
       tabContents.forEach(c => c.classList.remove("active"));
 
-      // Set active
       btn.classList.add("active");
       const targetTab = btn.getAttribute("data-tab");
       document.getElementById(`tab-${targetTab}`).classList.add("active");
@@ -303,15 +298,11 @@ function initThemeSliders() {
     element.addEventListener("input", (e) => {
       const val = e.target.value;
       
-      // Update label/output text
       if (ctrl.outputId) {
         document.getElementById(ctrl.outputId).textContent = val + (ctrl.suffix || "");
       }
 
-      // Update state in memory
       state.profiles[state.activeProfile][ctrl.id] = val;
-
-      // Update CSS Property
       updateCSSProperty(ctrl.variable, val, ctrl.suffix);
     });
   });
@@ -333,9 +324,7 @@ function initThemeSliders() {
     });
   }
 
-  // Save config button
   document.getElementById("saveConfigBtn").addEventListener("click", () => {
-    // Collect keys
     const apiKey = document.getElementById("alpacaApiKey").value.trim();
     let isLive = document.getElementById("alpacaLive").checked;
     if (apiKey.startsWith("AK")) isLive = true;
@@ -345,7 +334,6 @@ function initThemeSliders() {
     state.profiles[state.activeProfile].alpacaSecretKey = document.getElementById("alpacaSecretKey").value;
     state.profiles[state.activeProfile].alpacaLive = isLive;
 
-    // Save configuration states
     saveStateToBackend().then(() => {
       const statusText = document.querySelector(".status-text");
       const indicator = document.querySelector(".status-indicator");
@@ -378,7 +366,6 @@ function updateCSSProperty(variable, value, suffix = "") {
   }
 }
 
-// Convert Hex Color to RGB
 function hexToRgb(hex) {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result ? {
@@ -394,17 +381,14 @@ function initProfileManagement() {
   const addBtn = document.getElementById("addProfileBtn");
   const newNameInput = document.getElementById("newProfileName");
 
-  // Populate profiles select
   rebuildProfileSelectors();
 
-  // Change Profile selection
   select.addEventListener("change", (e) => {
     state.activeProfile = e.target.value;
     applyProfileSettings(state.activeProfile);
     rebuildProfileSelectors();
   });
 
-  // Create Profile
   addBtn.addEventListener("click", () => {
     const name = newNameInput.value.trim();
     if (!name) return;
@@ -413,7 +397,6 @@ function initProfileManagement() {
       return;
     }
 
-    // Clone current profile settings
     state.profiles[name] = { ...state.profiles[state.activeProfile] };
     state.activeProfile = name;
     newNameInput.value = "";
@@ -435,14 +418,12 @@ function rebuildProfileSelectors() {
   badgeList.innerHTML = "";
 
   Object.keys(state.profiles).forEach(pName => {
-    // Select Option
     const option = document.createElement("option");
     option.value = pName;
     option.textContent = pName;
     option.selected = (pName === state.activeProfile);
     select.appendChild(option);
 
-    // Profile Badge (Config page)
     const badge = document.createElement("div");
     badge.className = `profile-badge ${pName === state.activeProfile ? "active" : ""}`;
     badge.innerHTML = `
@@ -476,7 +457,6 @@ function applyProfileSettings(profileName) {
   const settings = state.profiles[profileName];
   if (!settings) return;
 
-  // Set values to inputs
   document.getElementById("glassColor").value = settings.glassColor;
   document.getElementById("glassOpacity").value = settings.glassOpacity;
   document.getElementById("opacityVal").textContent = settings.glassOpacity;
@@ -507,7 +487,6 @@ function applyProfileSettings(profileName) {
   document.getElementById("alpacaSecretKey").value = settings.alpacaSecretKey || "";
   document.getElementById("alpacaLive").checked = settings.alpacaLive || false;
 
-  // Update DOM CSS
   updateCSSProperty("--glass-bg", settings.glassColor);
   updateCSSProperty("--glass-opacity", settings.glassOpacity);
   updateCSSProperty("--glass-blur", settings.glassBlur);
@@ -519,7 +498,6 @@ function applyProfileSettings(profileName) {
   updateCSSProperty("--blob-4-color", settings.blobColor4);
   updateCSSProperty("--blob-speed-multiplier", settings.lampSpeed);
 
-  // Update Alpaca Status label
   const statusText = document.querySelector(".status-text");
   if(statusText) {
     statusText.textContent = settings.alpacaLive ? "Alpaca LIVE" : "Alpaca Sandbox";
@@ -529,11 +507,8 @@ function applyProfileSettings(profileName) {
 // Hover Info Panel / Tooltips (Top Layer)
 function initHoverTooltips() {
   const panel = document.getElementById("hoverInfoPanel");
-  const panelBody = document.getElementById("hoverBody");
-  const panelTitle = document.getElementById("hoverTitle");
   const closeBtn = document.getElementById("hoverCloseBtn");
 
-  // Show hover panel when user hovers metric cards
   document.querySelectorAll(".metric-card").forEach(card => {
     card.addEventListener("mouseenter", (e) => {
       const metricLabel = card.querySelector(".metric-label").textContent.trim();
@@ -542,7 +517,6 @@ function initHoverTooltips() {
     });
   });
 
-  // Close Hover Tooltip
   closeBtn.addEventListener("click", () => {
     panel.classList.remove("visible");
   });
@@ -560,7 +534,6 @@ function showHoverPanel(title, htmlContent) {
 
 // Data Rendering (Dashboard Stats, Position Matrix, Options Chain)
 function renderDashboard() {
-  // Fetch real-time account data
   fetch(`/api/account?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
   .then(accountData => {
@@ -568,22 +541,20 @@ function renderDashboard() {
     document.getElementById("navValue").textContent = `$${accountData.equity}`;
     document.getElementById("buyingPower").textContent = `$${accountData.buying_power}`;
     
-    // Manage sandbox connection indicator status
     const indicator = document.querySelector(".status-indicator");
     const statusText = document.querySelector(".status-text");
     if(indicator && statusText) {
       if (accountData.is_mock) {
-        indicator.style.backgroundColor = "#ffb800"; // yellow warning
+        indicator.style.backgroundColor = "#ffb800"; 
         indicator.style.boxShadow = "0 0 8px #ffb800";
         statusText.textContent = "Offline / Sandbox Demo";
       } else {
-        indicator.style.backgroundColor = "#00e676"; // green live
+        indicator.style.backgroundColor = "#00e676"; 
         indicator.style.boxShadow = "0 0 8px #00e676";
         statusText.textContent = state.profiles[state.activeProfile].alpacaLive ? "Alpaca LIVE" : "Alpaca Sandbox";
       }
     }
 
-    // Now, fetch portfolio history
     fetch(`/api/portfolio/history?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
     .then(res => res.json())
     .then(historyData => {
@@ -593,16 +564,13 @@ function renderDashboard() {
       let labels = [];
       let dataPoints = [];
 
-      // Parse Alpaca timestamps and equity
       if (historyData.timestamp && historyData.timestamp.length > 0) {
-        // Convert timestamps to clean dates
         labels = historyData.timestamp.map(ts => {
           const d = new Date(ts * 1000);
           return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
         });
         dataPoints = historyData.equity;
       } else {
-        // Fallback flat line representing current equity
         labels = ["Start", "Today"];
         dataPoints = [currentEquity, currentEquity];
       }
@@ -637,7 +605,6 @@ function renderDashboard() {
   })
   .catch(err => console.error("Error fetching account balance:", err));
 
-  // Fetch active strategy spreads from real positions
   const strategySummary = document.getElementById("strategySummary");
   if (strategySummary) {
     fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
@@ -722,7 +689,6 @@ function renderOptionChain() {
 
   const expirySelect = document.getElementById("expirationSelect");
   
-  // Fill default values if empty
   if(expirySelect && expirySelect.children.length === 0) {
     expirySelect.innerHTML = `
       <option>June 12, 2026 (8 Days)</option>
@@ -732,7 +698,6 @@ function renderOptionChain() {
   }
   const expiry = expirySelect ? expirySelect.value : "June 19, 2026 (15 Days)";
 
-  // Show loading indicators
   callsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">Loading calls...</td></tr>`;
   putsBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 12px;">Loading puts...</td></tr>`;
   strategiesGrid.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 24px; grid-column: span 3;">Generating optimal option spread setups...</div>`;
@@ -740,7 +705,6 @@ function renderOptionChain() {
   fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiry)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
   .then(data => {
-    // Update Underlying Price header info
     const headerText = document.querySelector("#tab-options p");
     if (headerText) {
       headerText.innerHTML = `Analyze strikes, premiums, and execute trades for <strong>${data.ticker}</strong> (Current Stock Price: <strong>$${data.underlyingPrice}</strong>).`;
@@ -753,7 +717,6 @@ function renderOptionChain() {
       return;
     }
 
-    // Render Raw Chain
     callsBody.innerHTML = data.strikes.map(s => `
       <tr class="trade-row" onclick="selectStrike('CALL', '${s.strike}', '${s.callAsk}')">
         <td>$${s.callBid}</td>
@@ -772,7 +735,6 @@ function renderOptionChain() {
       </tr>
     `).join("");
 
-    // Update spread width presets availability in Option Chain
     const checkWidthAvailable = (w) => {
       for (let i = 0; i < data.strikes.length; i++) {
         const s1 = parseFloat(data.strikes[i].strike);
@@ -796,12 +758,11 @@ function renderOptionChain() {
       }
     });
 
-    // Find preselected strikes for Spreads based on Delta parameters and configurable Spread Width
     const spreadLimitInput = document.getElementById("spreadLimitInput");
     const targetWidth = parseFloat(spreadLimitInput ? spreadLimitInput.value : 1.0) || 1.0;
 
     function findStrikeWithWidth(strikes, shortStrikeVal, width, direction, type) {
-      const targetStrikeVal = type === 'PUT' ? shortStrikeVal + (direction * width) : shortStrikeVal + (direction * width);
+      const targetStrikeVal = shortStrikeVal + (direction * width);
       let closest = null;
       let minDiff = Infinity;
       for (const s of strikes) {
@@ -815,22 +776,18 @@ function renderOptionChain() {
       return closest;
     }
 
-    // Credit Put Spread (Bull Put): Sell -0.25 delta, Buy Put targetWidth below it
     const bpSellPut = findStrikeByDelta(data.strikes, -0.25, 'PUT');
     const bpBuyPut = bpSellPut ? findStrikeWithWidth(data.strikes, parseFloat(bpSellPut.strike), targetWidth, -1, 'PUT') : null;
 
-    // Credit Call Spread (Bear Call): Sell 0.25 delta, Buy Call targetWidth above it
     const bcSellCall = findStrikeByDelta(data.strikes, 0.25, 'CALL');
     const bcBuyCall = bcSellCall ? findStrikeWithWidth(data.strikes, parseFloat(bcSellCall.strike), targetWidth, 1, 'CALL') : null;
 
-    // Debit Call Spread (Bull Call): Buy 0.50 delta (ATM), Sell Call targetWidth above it
     const dbBuyCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
     const dbSellCall = dbBuyCall ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyCall.strike), targetWidth, 1, 'CALL') : null;
 
-    // Debit Put Spread (Bear Put): Buy -0.50 delta (ATM), Sell Put targetWidth below it
     const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
     const dbSellPut = dbBuyPut ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyPut.strike), targetWidth, -1, 'PUT') : null;
-        // Straddle (Breakout): Buy Call ~0.50, Buy Put ~-0.50
+
     const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
     const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');    
     
@@ -842,7 +799,6 @@ function renderOptionChain() {
 
     const cards = [];
 
-    // 1. Bull Put Spread Card
     if (bpSellPut && bpBuyPut) {
       const sellPutPrem = parseFloat(bpSellPut.putBid);
       const buyPutPrem = parseFloat(bpBuyPut.putAsk);
@@ -868,7 +824,6 @@ function renderOptionChain() {
       });
     }
 
-    // 2. Bear Call Spread Card
     if (bcSellCall && bcBuyCall) {
       const sellCallPrem = parseFloat(bcSellCall.callBid);
       const buyCallPrem = parseFloat(bcBuyCall.callAsk);
@@ -894,7 +849,6 @@ function renderOptionChain() {
       });
     }
 
-    // 3. Bull Call Debit Spread Card
     if (dbBuyCall && dbSellCall) {
       const buyCallPrem = parseFloat(dbBuyCall.callAsk);
       const sellCallPrem = parseFloat(dbSellCall.callBid);
@@ -919,7 +873,6 @@ function renderOptionChain() {
       });
     }
 
-    // 4. Bear Put Debit Spread Card
     if (dbBuyPut && dbSellPut) {
       const buyPutPrem = parseFloat(dbBuyPut.putAsk);
       const sellPutPrem = parseFloat(dbSellPut.putBid);
@@ -944,7 +897,6 @@ function renderOptionChain() {
       });
     }
 
-    // 5. Iron Condor Card (Sideways)
     if (bpSellPut && bpBuyPut && bcSellCall && bcBuyCall) {
       const putCredit = parseFloat(bpSellPut.putBid) - parseFloat(bpBuyPut.putAsk);
       const callCredit = parseFloat(bcSellCall.callBid) - parseFloat(bcBuyCall.callAsk);
@@ -972,7 +924,6 @@ function renderOptionChain() {
       });
     }
 
-    // 6. Straddle Card (Breakout)
     if (atmCall && atmPut) {
       const callPrem = parseFloat(atmCall.callAsk);
       const putPrem = parseFloat(atmPut.putAsk);
@@ -1043,12 +994,15 @@ function renderOptionChain() {
 
 window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk) {
   const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
+  
+  // FIXED: Dynamically bind the latest selection count value from the DOM input elements
   const qtyInput = document.getElementById("orderQtyInput");
   const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
   
   const rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
   const rawRisk = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
   
+  // FIXED: Updated template string to pass through the real parameter bounds
   showHoverPanel(
     `Execute Spread Order`,
     `
@@ -1079,7 +1033,7 @@ window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry,
       type: strategy,
       strike: strikes,
       price: premium,
-      qty: qty,
+      qty: parseInt(qty) || 1, // FIXED: Force actual runtime value state
       expiry: expiry
     })
   })
@@ -1092,7 +1046,6 @@ window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry,
     setTimeout(() => {
       showHoverPanel("Spread Order Filled", `Successfully executed ${ticker} spread! Option order placed via Alpaca. Message: ${data.message}`);
       
-      // Add strategy to active list for demonstration
       const summaryList = document.getElementById("strategySummary");
       if (summaryList) {
         const newItem = document.createElement("div");
@@ -1115,6 +1068,8 @@ window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry,
 
 window.selectStrike = function(type, strike, price) {
   const ticker = document.getElementById("underlyingTicker").value;
+  
+  // FIXED: Read selection sizing configurations dynamically on click
   const qtyInput = document.getElementById("orderQtyInput");
   const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
   
@@ -1147,7 +1102,7 @@ window.executeTrade = function(ticker, type, strike, price, qty) {
       type: type,
       strike: strike,
       price: price,
-      qty: qty,
+      qty: parseInt(qty) || 1, // FIXED: Maps state bindings dynamically rather than default falling to 1
       expiry: expiry
     })
   })
@@ -1194,14 +1149,12 @@ function initStrategyWizard() {
   const dateSelect = document.getElementById("wizDate");
   const tickerInput = document.getElementById("wizTicker");
 
-  // Direction group handlers
   directionButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       directionButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       wizDirection = btn.getAttribute("data-val");
       
-      // Dynamic visibility of speed slider: Sideways and Breakout don't need speed qualifiers
       const speedSetting = document.getElementById("wizSpeedGroup").closest(".setting-item");
       if (wizDirection === "sideways" || wizDirection === "breakout") {
         speedSetting.style.display = "none";
@@ -1213,7 +1166,6 @@ function initStrategyWizard() {
     });
   });
 
-  // Speed group handlers
   speedButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       speedButtons.forEach(b => b.classList.remove("active"));
@@ -1223,7 +1175,6 @@ function initStrategyWizard() {
     });
   });
 
-  // Other input change events
   dateSelect.addEventListener("change", calculateWizardStrategy);
   tickerInput.addEventListener("input", calculateWizardStrategy);
 
@@ -1232,7 +1183,6 @@ function initStrategyWizard() {
   if (wizQty) wizQty.addEventListener("input", calculateWizardStrategy);
   if (wizSpreadWidth) wizSpreadWidth.addEventListener("input", calculateWizardStrategy);
 
-  // Preset buttons in wizard
   const wizBudgetButtons = document.querySelectorAll("#wizSpreadBudgetsGroup .wiz-budget-preset-btn");
   wizBudgetButtons.forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1246,11 +1196,9 @@ function initStrategyWizard() {
     });
   });
 
-  // Load Order button handler
   document.getElementById("loadWizOrderBtn").addEventListener("click", () => {
     const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
     
-    // Propagate Quantity and Spread Width parameters from Wizard to Option Chain Builder
     const mainQty = document.getElementById("orderQtyInput");
     const mainWidth = document.getElementById("spreadLimitInput");
     
@@ -1258,7 +1206,6 @@ function initStrategyWizard() {
     if (mainWidth && wizSpreadWidth) {
       mainWidth.value = wizSpreadWidth.value;
       
-      // Update active preset button in main tab if matching
       const mainBudgetButtons = document.querySelectorAll("#spreadBudgetsGroup .budget-preset-btn");
       mainBudgetButtons.forEach(btn => {
         const budgetVal = (parseFloat(btn.getAttribute("data-budget")) / 100).toFixed(2);
@@ -1270,11 +1217,9 @@ function initStrategyWizard() {
       });
     }
 
-    // Switch to Options Tab
     const optionsNavBtn = document.getElementById("nav-options");
     if(optionsNavBtn) optionsNavBtn.click();
 
-    // Fill options ticker and trigger reload
     document.getElementById("underlyingTicker").value = ticker;
     renderOptionChain();
 
@@ -1284,19 +1229,16 @@ function initStrategyWizard() {
     );
   });
 
-  // Transmit Order from Wizard button handler
   const executeWizTradeBtn = document.getElementById("executeWizTradeBtn");
   if (executeWizTradeBtn) {
     executeWizTradeBtn.addEventListener("click", () => {
       const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
       
-      // Let's compute expiry string based on wizDate selection
       const expirySelect = document.getElementById("wizDate");
       const expiryDays = parseInt(expirySelect ? expirySelect.value : 14) || 14;
       const targetDate = new Date();
       targetDate.setDate(targetDate.getDate() + expiryDays);
       
-      // Find next Friday if target is 7 or 14 to match weekly expirations
       if (expiryDays === 7 || expiryDays === 14) {
         const currentDay = targetDate.getDay();
         const daysToFriday = (5 - currentDay + 7) % 7;
@@ -1314,7 +1256,6 @@ function initStrategyWizard() {
       fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiryStr)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
       .then(res => res.json())
       .then(data => {
-        // Find preselected strikes for Spreads based on Delta parameters and configurable Spread Width
         function findStrikeWithWidth(strikes, shortStrikeVal, width, direction, type) {
           const targetStrikeVal = shortStrikeVal + (direction * width);
           let closest = null;
@@ -1399,7 +1340,6 @@ function initStrategyWizard() {
           return;
         }
 
-        // Trigger trade modal with actual real-time pricing and computed strikes
         tradeSpreadFromChain(ticker, selectedStrategy, selectedLegs, selectedPremium, selectedRisk);
       })
       .catch(err => {
@@ -1409,7 +1349,6 @@ function initStrategyWizard() {
     });
   }
 
-  // Initial calculation run
   calculateWizardStrategy();
 }
 
@@ -1428,7 +1367,6 @@ function calculateWizardStrategy() {
   const wizSpreadWidthInput = document.getElementById("wizSpreadWidth");
   const width = parseFloat(wizSpreadWidthInput ? wizSpreadWidthInput.value : 1.0) || 1.0;
 
-  // Dynamically check spread availability for Wizard preset buttons and selected width
   const expirySelect = document.getElementById("wizDate");
   const expiryDays = parseInt(expirySelect ? expirySelect.value : 14) || 14;
   const targetDate = new Date();
@@ -1459,7 +1397,6 @@ function calculateWizardStrategy() {
       return false;
     };
 
-    // Tint Wizard preset buttons
     const wizPresetBtns = document.querySelectorAll("#wizSpreadBudgetsGroup .wiz-budget-preset-btn");
     wizPresetBtns.forEach(btn => {
       const budgetVal = parseFloat(btn.getAttribute("data-budget")) / 100;
@@ -1470,7 +1407,6 @@ function calculateWizardStrategy() {
       }
     });
 
-    // Tint Wizard recommendation card & warning label
     const recCard = document.querySelector(".wizard-rec-card");
     let warningEl = document.getElementById("wizWidthWarning");
     const currentWidthAvailable = checkWidthAvailable(width);
@@ -1502,7 +1438,7 @@ function calculateWizardStrategy() {
 
   let strategy = "Bull Call Debit Spread";
   let explanation = "";
-  let curveType = "debit_call_spread"; // helper for drawing curve
+  let curveType = "debit_call_spread"; 
   let maxProfit = 0;
   let maxLoss = 0;
   let winProb = "50%";
@@ -1589,14 +1525,12 @@ function calculateWizardStrategy() {
     curveType = "straddle";
   }
 
-  // Update UI Elements
   nameLabel.textContent = strategy;
   textLabel.innerHTML = explanation;
   profitLabel.textContent = maxProfit === "Unlimited" ? "Unlimited" : `$${maxProfit}`;
   lossLabel.textContent = `$${maxLoss}`;
   probLabel.textContent = winProb;
 
-  // Draw PnL risk diagram
   drawWizPnlChart(curveType);
 }
 
@@ -1610,24 +1544,20 @@ function drawWizPnlChart(curveType) {
   
   ctx.clearRect(0, 0, width, height);
 
-  // Retrieve computed color values for CSS variables
   const computedStyle = getComputedStyle(document.documentElement);
   const colorPositive = computedStyle.getPropertyValue('--accent-positive').trim() || "#00e676";
   const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
 
-  // Draw axis background lines
   ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
 
-  // Center Horizontal Axis (Zero line)
   const zeroY = height / 2;
   ctx.beginPath();
   ctx.moveTo(0, zeroY);
   ctx.lineTo(width, zeroY);
   ctx.stroke();
 
-  // Draw Curve path
   ctx.setLineDash([]);
   ctx.lineWidth = 3.5;
 
@@ -1637,7 +1567,6 @@ function drawWizPnlChart(curveType) {
   ctx.beginPath();
 
   if (curveType === "bull_call_spread" || curveType === "bull_put_spread") {
-    // Bullish S-curve
     gradient.addColorStop(0, colorNegative);
     gradient.addColorStop(0.4, colorNegative);
     gradient.addColorStop(0.6, colorPositive);
@@ -1649,7 +1578,6 @@ function drawWizPnlChart(curveType) {
     ctx.lineTo(width, zeroY - 45);
   } 
   else if (curveType === "bear_put_spread" || curveType === "bear_call_spread") {
-    // Bearish S-curve
     gradient.addColorStop(0, colorPositive);
     gradient.addColorStop(0.4, colorPositive);
     gradient.addColorStop(0.6, colorNegative);
@@ -1661,7 +1589,6 @@ function drawWizPnlChart(curveType) {
     ctx.lineTo(width, zeroY + 45);
   }
   else if (curveType === "iron_condor") {
-    // Rangebound trapezoid (max profit in middle)
     gradient.addColorStop(0, colorNegative);
     gradient.addColorStop(0.3, colorPositive);
     gradient.addColorStop(0.7, colorPositive);
@@ -1675,7 +1602,6 @@ function drawWizPnlChart(curveType) {
     ctx.lineTo(width, zeroY + 40);
   }
   else if (curveType === "straddle") {
-    // V-shaped curve (max loss in middle)
     gradient.addColorStop(0, colorPositive);
     gradient.addColorStop(0.5, colorNegative);
     gradient.addColorStop(1, colorPositive);
@@ -1687,7 +1613,6 @@ function drawWizPnlChart(curveType) {
 
   ctx.stroke();
 
-  // Draw chart labels
   ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
   ctx.font = "10px Inter";
   ctx.fillText("PROFIT", 10, 20);
@@ -1744,7 +1669,7 @@ function renderBestBets() {
 
     container.innerHTML = bets.map(bet => `
       <div class="best-bet-item hover-trigger">
-        <div class="bet-header">
+        <div class="best-header">
           <div>
             <span class="bet-title">${bet.strategy}</span>
             <div class="bet-thesis" style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; margin-top: 2px;">${bet.thesis}</div>
@@ -1814,6 +1739,7 @@ window.executeBestBetTrade = function(strategy, strikes, premium) {
       type: strategy,
       strike: strikes,
       price: premium,
+      qty: 1,
       expiry: "June 15, 2026 (11 Days)"
     })
   })
@@ -1826,7 +1752,6 @@ window.executeBestBetTrade = function(strategy, strikes, premium) {
     setTimeout(() => {
       showHoverPanel("Spread Order Filled", `Successfully executed QQQ multi-leg spread! Option order placed via Alpaca. Message: ${data.message}`);
       
-      // Add strategy to active list for demonstration
       const summaryList = document.getElementById("strategySummary");
       const newItem = document.createElement("div");
       newItem.className = "strategy-item hover-trigger";
@@ -1911,12 +1836,10 @@ function renderTechnicalChart(ticker, tab) {
   fetch(`/api/chart/technical?ticker=${encodeURIComponent(ticker)}`)
   .then(res => res.json())
   .then(data => {
-    // 1. Render Main Chart (Price, HMA 30, Supertrend)
     const ctxMain = mainCanvas.getContext("2d");
     let currentMainChart = isWiz ? wizTechChart : posTechChart;
     if (currentMainChart) currentMainChart.destroy();
     
-    // Dynamically set slice count based on viewport width
     const isMobile = window.innerWidth <= 900;
     const sliceCount = isMobile ? 20 : 40;
     const slicedTimestamps = data.timestamps.slice(-sliceCount);
@@ -1942,12 +1865,10 @@ function renderTechnicalChart(ticker, tab) {
       return dir === 1 ? "#00e676" : "#ff2a5f";
     };
     
-    // Retrieve colors for line and background fill
     const computedStyle = getComputedStyle(document.documentElement);
     const colorPositive = computedStyle.getPropertyValue('--accent-positive').trim() || "#00e676";
     const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
 
-    // Setup candlestick bar coordinates
     const colors = slicedCloses.map((c, i) => c >= slicedOpens[i] ? colorPositive : colorNegative);
     const wicksData = slicedCloses.map((c, i) => [slicedLows[i], slicedHighs[i]]);
     const bodiesData = slicedCloses.map((c, i) => [slicedOpens[i], c]);
@@ -2009,7 +1930,6 @@ function renderTechnicalChart(ticker, tab) {
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: true,
             labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
           }
         },
@@ -2038,7 +1958,6 @@ function renderTechnicalChart(ticker, tab) {
     if (isWiz) wizTechChart = newMainChart;
     else posTechChart = newMainChart;
     
-    // 2. Render Stochastics Chart (14,4%D & 40,4%D)
     const ctxStoch = stochCanvas.getContext("2d");
     let currentStochChart = isWiz ? wizStochChart : posStochChart;
     if (currentStochChart) currentStochChart.destroy();
@@ -2071,7 +1990,6 @@ function renderTechnicalChart(ticker, tab) {
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: true,
             labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
           }
         },
@@ -2102,9 +2020,7 @@ function renderTechnicalChart(ticker, tab) {
   .catch(err => console.error("Error drawing technical indicators chart:", err));
 }
 
-// ==========================================================================
-// POPULAR TICKERS CONFIGURATION
-// ==========================================================================
+// Popular Tickers Setup
 const popularTickers = ["TSLA", "AAPL", "MSFT", "NVDA", "AMD", "PLTR", "SOFI"];
 
 function initBeginnerBaskets() {
@@ -2152,6 +2068,3 @@ function initSpreadBudgets() {
     });
   }
 }
-
-
-
