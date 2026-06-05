@@ -24,7 +24,14 @@ app = FastAPI(title="AuraTrade Backend Server")
 # Define directories
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-DATA_FILE = os.path.join(BASE_DIR, "profiles_db.json")
+
+# FIXED: Points inside the isolated persistent folder volume so it doesn't mask /app
+PERSISTENT_VOLUME_DIR = "/app/data"
+DATA_FILE = os.path.join(PERSISTENT_VOLUME_DIR, "profiles_db.json")
+
+# Automatically initialize directory path if it's running fresh on a new volume mount
+if not os.path.exists(PERSISTENT_VOLUME_DIR):
+    os.makedirs(PERSISTENT_VOLUME_DIR, exist_ok=True)
 
 # Data Models
 class AuthModel(BaseModel):
@@ -160,7 +167,6 @@ def register(auth: AuthModel):
     if username in db.get("users", {}):
         raise HTTPException(status_code=400, detail="Username already exists")
     
-    # Grab background system flags if they are already wired to the environment host
     env_key = os.environ.get("ALPACA_API_KEY", "")
     env_secret = os.environ.get("ALPACA_SECRET_KEY", "")
     env_live = check_is_live(env_key, False)
