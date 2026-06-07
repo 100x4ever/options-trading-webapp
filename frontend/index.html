@@ -175,9 +175,9 @@
           <div class="glass-card wizard-form-card">
             <h3>Configure Your Thesis</h3>
             
-            <div class="setting-item">
+            <div class="setting-item" style="display: none;">
               <label for="wizTicker">Target Asset Ticker</label>
-              <input type="text" id="wizTicker" value="AAPL" placeholder="AAPL, TSLA, SPY...">
+              <input type="text" id="wizTicker" value="QQQ">
             </div>
 
             <div class="setting-item">
@@ -331,10 +331,10 @@
         </header>
 
         <div class="options-controls glass-card" style="display: flex; gap: 20px; flex-wrap: wrap;">
-          <div class="control-group">
+          <div class="control-group" style="display: none;">
             <label for="underlyingTicker">Underlying Ticker</label>
             <div class="ticker-input-wrapper">
-              <input type="text" id="underlyingTicker" value="AAPL" placeholder="AAPL, TSLA, SPY...">
+              <input type="text" id="underlyingTicker" value="QQQ">
               <button id="fetchChainBtn">Load Chain</button>
             </div>
           </div>

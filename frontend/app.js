@@ -60,6 +60,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Set up Hover Layer Tooltip listener
   initHoverTooltips();
 
+  // Initialize expiration dates
+  initExpirationDates();
+
   // Initialize Strategy Wizard
   initStrategyWizard();
 
@@ -1235,18 +1238,7 @@ function initStrategyWizard() {
       const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
       
       const expirySelect = document.getElementById("wizDate");
-      const expiryDays = parseInt(expirySelect ? expirySelect.value : 14) || 14;
-      const targetDate = new Date();
-      targetDate.setDate(targetDate.getDate() + expiryDays);
-      
-      if (expiryDays === 7 || expiryDays === 14) {
-        const currentDay = targetDate.getDay();
-        const daysToFriday = (5 - currentDay + 7) % 7;
-        targetDate.setDate(targetDate.getDate() + daysToFriday);
-      }
-      
-      const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-      const expiryStr = `${months[targetDate.getMonth()]} ${targetDate.getDate()}, ${targetDate.getFullYear()}`;
+      const expiryStr = expirySelect ? expirySelect.value : "";
       
       const qty = parseInt(wizQty ? wizQty.value : 1) || 1;
       const width = parseFloat(wizSpreadWidth ? wizSpreadWidth.value : 1.0) || 1.0;
@@ -1368,16 +1360,7 @@ function calculateWizardStrategy() {
   const width = parseFloat(wizSpreadWidthInput ? wizSpreadWidthInput.value : 1.0) || 1.0;
 
   const expirySelect = document.getElementById("wizDate");
-  const expiryDays = parseInt(expirySelect ? expirySelect.value : 14) || 14;
-  const targetDate = new Date();
-  targetDate.setDate(targetDate.getDate() + expiryDays);
-  if (expiryDays === 7 || expiryDays === 14) {
-    const currentDay = targetDate.getDay();
-    const daysToFriday = (5 - currentDay + 7) % 7;
-    targetDate.setDate(targetDate.getDate() + daysToFriday);
-  }
-  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const expiryStr = `${months[targetDate.getMonth()]} ${targetDate.getDate()}, ${targetDate.getFullYear()}`;
+  const expiryStr = expirySelect ? expirySelect.value : "";
 
   fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiryStr)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
@@ -2068,3 +2051,62 @@ function initSpreadBudgets() {
     });
   }
 }
+
+function initExpirationDates() {
+  const today = new Date();
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  
+  const formatDate = (dateObj) => {
+    return `${months[dateObj.getMonth()]} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+  };
+
+  // 1. This Friday
+  const thisFriday = new Date(today);
+  const day = today.getDay();
+  const daysToFriday = (5 - day + 7) % 7;
+  let offset = daysToFriday;
+  if (day === 6 || day === 0) {
+    offset = daysToFriday + 7;
+  }
+  thisFriday.setDate(today.getDate() + offset);
+  
+  // 2. Next Friday
+  const nextFriday = new Date(thisFriday);
+  nextFriday.setDate(thisFriday.getDate() + 7);
+  
+  // 3. Last Friday of Month
+  let lastFriday = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  while (lastFriday.getDay() !== 5) {
+    lastFriday.setDate(lastFriday.getDate() - 1);
+  }
+  if (lastFriday < today) {
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    while (nextMonth.getDay() !== 5) {
+      nextMonth.setDate(nextMonth.getDate() - 1);
+    }
+    lastFriday = nextMonth;
+  }
+
+  const dateOptions = [
+    { label: "This Friday", dateStr: formatDate(thisFriday) },
+    { label: "Next Friday", dateStr: formatDate(nextFriday) },
+    { label: "Last Friday of month", dateStr: formatDate(lastFriday) }
+  ];
+
+  // Populate expirationSelect dropdown (Option Chain Builder)
+  const expirationSelect = document.getElementById("expirationSelect");
+  if (expirationSelect) {
+    expirationSelect.innerHTML = dateOptions.map(opt => 
+      `<option value="${opt.dateStr}">${opt.label} (${opt.dateStr})</option>`
+    ).join("");
+  }
+
+  // Populate wizDate dropdown (Strategy Wizard)
+  const wizDateSelect = document.getElementById("wizDate");
+  if (wizDateSelect) {
+    wizDateSelect.innerHTML = dateOptions.map(opt => 
+      `<option value="${opt.dateStr}">${opt.label} (${opt.dateStr})</option>`
+    ).join("");
+  }
+}
+
