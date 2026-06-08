@@ -1978,9 +1978,6 @@ function renderTechnicalChart(ticker, tab) {
         livePriceEl.textContent = `$${parseFloat(lastPrice).toFixed(2)}`;
       }
     }
-    const ctxMain = mainCanvas.getContext("2d");
-    let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : posTechChart);
-    if (currentMainChart) currentMainChart.destroy();
     
     const isMobile = window.innerWidth <= 900;
     const sliceCount = isMobile ? 20 : 40;
@@ -2015,153 +2012,183 @@ function renderTechnicalChart(ticker, tab) {
     const wicksData = slicedCloses.map((c, i) => [slicedLows[i], slicedHighs[i]]);
     const bodiesData = slicedCloses.map((c, i) => [slicedOpens[i], c]);
 
-    const newMainChart = new Chart(ctxMain, {
-      type: "bar",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            type: "bar",
-            label: "Price Body",
-            data: bodiesData,
-            backgroundColor: colors,
-            borderColor: colors,
-            borderWidth: 1,
-            barThickness: 10,
-            grouped: false,
-            order: 2
-          },
-          {
-            type: "bar",
-            label: "Wick Range",
-            data: wicksData,
-            backgroundColor: colors,
-            borderColor: colors,
-            borderWidth: 1,
-            barThickness: 2,
-            grouped: false,
-            order: 3
-          },
-          {
-            type: "line",
-            label: "30 HMA",
-            data: slicedHma,
-            borderColor: "#ffb800",
-            borderWidth: 1.8,
-            pointRadius: 0,
-            borderDash: [5, 4],
-            tension: 0.2,
-            order: 1
-          },
-          {
-            type: "line",
-            label: "Supertrend",
-            data: slicedSupertrend,
-            borderWidth: 2.5,
-            pointRadius: 0,
-            segment: {
-              borderColor: supertrendSegmentColor
+    const ctxMain = mainCanvas.getContext("2d");
+    let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : posTechChart);
+
+    const yMin = Math.floor(Math.min(...slicedLows) - ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0));
+    const yMax = Math.ceil(Math.max(...slicedHighs) + ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0));
+
+    if (currentMainChart) {
+      currentMainChart.data.labels = labels;
+      currentMainChart.data.datasets[0].data = bodiesData;
+      currentMainChart.data.datasets[0].backgroundColor = colors;
+      currentMainChart.data.datasets[0].borderColor = colors;
+      currentMainChart.data.datasets[1].data = wicksData;
+      currentMainChart.data.datasets[1].backgroundColor = colors;
+      currentMainChart.data.datasets[1].borderColor = colors;
+      currentMainChart.data.datasets[2].data = slicedHma;
+      currentMainChart.data.datasets[3].data = slicedSupertrend;
+      currentMainChart.options.scales.y.min = yMin;
+      currentMainChart.options.scales.y.max = yMax;
+      currentMainChart.update("none");
+    } else {
+      const newMainChart = new Chart(ctxMain, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              type: "bar",
+              label: "Price Body",
+              data: bodiesData,
+              backgroundColor: colors,
+              borderColor: colors,
+              borderWidth: 1,
+              barThickness: 10,
+              grouped: false,
+              order: 2
             },
-            tension: 0.1,
-            order: 0
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
-          }
+            {
+              type: "bar",
+              label: "Wick Range",
+              data: wicksData,
+              backgroundColor: colors,
+              borderColor: colors,
+              borderWidth: 1,
+              barThickness: 2,
+              grouped: false,
+              order: 3
+            },
+            {
+              type: "line",
+              label: "30 HMA",
+              data: slicedHma,
+              borderColor: "#ffb800",
+              borderWidth: 1.8,
+              pointRadius: 0,
+              borderDash: [5, 4],
+              tension: 0.2,
+              order: 1
+            },
+            {
+              type: "line",
+              label: "Supertrend",
+              data: slicedSupertrend,
+              borderWidth: 2.5,
+              pointRadius: 0,
+              segment: {
+                borderColor: supertrendSegmentColor
+              },
+              tension: 0.1,
+              order: 0
+            }
+          ]
         },
-        scales: {
-          x: { 
-            stacked: true,
-            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
-            ticks: { 
-              color: "rgba(255,255,255,0.5)", 
-              font: { size: 9 },
-              maxTicksLimit: 8,
-              maxRotation: 0,
-              minRotation: 0
-            } 
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
+            }
           },
-          y: { 
-            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
-            ticks: { color: "rgba(255,255,255,0.5)" },
-            min: Math.floor(Math.min(...slicedLows) - ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0)),
-            max: Math.ceil(Math.max(...slicedHighs) + ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0))
+          scales: {
+            x: { 
+              stacked: true,
+              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              ticks: { 
+                color: "rgba(255,255,255,0.5)", 
+                font: { size: 9 },
+                maxTicksLimit: 8,
+                maxRotation: 0,
+                minRotation: 0
+              } 
+            },
+            y: { 
+              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              ticks: { color: "rgba(255,255,255,0.5)" },
+              min: yMin,
+              max: yMax
+            }
           }
         }
-      }
-    });
-    
-    if (isWiz) wizTechChart = newMainChart;
-    else if (isDash) dashTechChart = newMainChart;
-    else posTechChart = newMainChart;
+      });
+      
+      if (isWiz) wizTechChart = newMainChart;
+      else if (isDash) dashTechChart = newMainChart;
+      else posTechChart = newMainChart;
+    }
     
     const ctxStoch = stochCanvas.getContext("2d");
     let currentStochChart = isWiz ? wizStochChart : (isDash ? dashStochChart : posStochChart);
-    if (currentStochChart) currentStochChart.destroy();
     
-    const newStochChart = new Chart(ctxStoch, {
-      type: "line",
-      data: {
-        labels: labels,
-        datasets: [
-          {
-            label: "Stoch (14, 4 %D)",
-            data: slicedStoch14,
-            borderColor: colorNegative,
-            borderWidth: 1.5,
-            pointRadius: 0,
-            tension: 0.2
-          },
-          {
-            label: "Stoch (40, 4 %D)",
-            data: slicedStoch40,
-            borderColor: "#7000ff",
-            borderWidth: 1.5,
-            pointRadius: 0,
-            tension: 0.2
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
-          }
+    if (currentStochChart) {
+      currentStochChart.data.labels = labels;
+      currentStochChart.data.datasets[0].data = slicedStoch14;
+      currentStochChart.data.datasets[1].data = slicedStoch40;
+      currentStochChart.update("none");
+    } else {
+      const newStochChart = new Chart(ctxStoch, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "Stoch (14, 4 %D)",
+              data: slicedStoch14,
+              borderColor: colorNegative,
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.2
+            },
+            {
+              label: "Stoch (40, 4 %D)",
+              data: slicedStoch40,
+              borderColor: "#7000ff",
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.2
+            }
+          ]
         },
-        scales: {
-          x: { 
-            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
-            ticks: { 
-              color: "rgba(255,255,255,0.5)", 
-              font: { size: 9 },
-              maxTicksLimit: 8,
-              maxRotation: 0,
-              minRotation: 0
-            } 
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: {
+              labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
+            }
           },
-          y: { 
-            grid: { color: "rgba(255, 255, 255, 0.03)" }, 
-            ticks: { color: "rgba(255,255,255,0.5)" },
-            min: 0,
-            max: 100
+          scales: {
+            x: { 
+              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              ticks: { 
+                color: "rgba(255,255,255,0.5)", 
+                font: { size: 9 },
+                maxTicksLimit: 8,
+                maxRotation: 0,
+                minRotation: 0
+              } 
+            },
+            y: { 
+              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              ticks: { color: "rgba(255,255,255,0.5)" },
+              min: 0,
+              max: 100
+            }
           }
         }
-      }
-    });
-    
-    if (isWiz) wizStochChart = newStochChart;
-    else if (isDash) dashStochChart = newStochChart;
-    else posStochChart = newStochChart;
+      });
+      
+      if (isWiz) wizStochChart = newStochChart;
+      else if (isDash) dashStochChart = newStochChart;
+      else posStochChart = newStochChart;
+    }
   })
   .catch(err => console.error("Error drawing technical indicators chart:", err));
+}
 }
 
 // Popular Tickers Setup
