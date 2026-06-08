@@ -80,10 +80,10 @@
       </div>
 
       <nav class="nav-links">
-        <button class="nav-btn" data-tab="dashboard" id="nav-dashboard" style="display: none;">
+        <button class="nav-btn active" data-tab="dashboard" id="nav-dashboard">
           <i data-lucide="layout-dashboard"></i> Dashboard
         </button>
-        <button class="nav-btn active" data-tab="wizard" id="nav-wizard">
+        <button class="nav-btn" data-tab="wizard" id="nav-wizard">
           <i data-lucide="compass"></i> Strategy Wizard
         </button>
         <button class="nav-btn" data-tab="positions" id="nav-positions" style="display: none;">
@@ -112,7 +112,7 @@
     <main class="main-content">
       
       <!-- TAB: DASHBOARD -->
-      <section class="tab-content" id="tab-dashboard">
+      <section class="tab-content active" id="tab-dashboard">
         <header class="tab-header">
           <h1>Dashboard Overview</h1>
           <p>Real-time options portfolio metrics and performance tracker.</p>
@@ -131,13 +131,7 @@
           </div>
         </div>
 
-        <div class="dashboard-charts-grid">
-          <div class="glass-card chart-card">
-            <h3>Performance History</h3>
-            <div class="chart-container">
-              <canvas id="performanceChart"></canvas>
-            </div>
-          </div>
+        <div class="dashboard-charts-grid" style="grid-template-columns: 1fr;">
           <div class="glass-card positions-summary-card">
             <h3>Active Strategy Spreads</h3>
             <div class="strategy-list" id="strategySummary">
@@ -145,26 +139,10 @@
             </div>
           </div>
         </div>
-
-        <!-- BEST BETS SCREENER WIDGET -->
-        <div class="glass-card best-bets-card" style="margin-top: 20px; padding: 24px;">
-          <div class="best-bets-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <div>
-              <h3 style="font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                <i data-lucide="award" style="color: var(--accent-neutral);"></i> Best Bets & Screener (QQQ 10DTE)
-              </h3>
-              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Top-rated spreads based on risk-reward profiles and win probability.</p>
-            </div>
-            <span class="strategy-badge" style="margin-bottom: 0; padding: 6px 12px; font-size: 11px;">10 Days Out</span>
-          </div>
-          <div class="best-bets-grid" id="bestBetsContainer">
-            <!-- Dynamically populated bets -->
-          </div>
-        </div>
       </section>
 
       <!-- TAB: STRATEGY WIZARD -->
-      <section class="tab-content active" id="tab-wizard">
+      <section class="tab-content" id="tab-wizard">
         <header class="tab-header">
           <h1>Strategy Wizard</h1>
           <p>Translate your market thesis into a high-probability options trade layout.</p>

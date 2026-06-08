@@ -561,7 +561,9 @@ function renderDashboard() {
     fetch(`/api/portfolio/history?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
     .then(res => res.json())
     .then(historyData => {
-      const ctx = document.getElementById("performanceChart").getContext("2d");
+      const canvas = document.getElementById("performanceChart");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
       if (perfChart) perfChart.destroy();
 
       let labels = [];
