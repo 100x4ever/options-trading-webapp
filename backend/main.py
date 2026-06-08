@@ -33,6 +33,17 @@ DATA_FILE = os.path.join(PERSISTENT_VOLUME_DIR, "profiles_db.json")
 if not os.path.exists(PERSISTENT_VOLUME_DIR):
     os.makedirs(PERSISTENT_VOLUME_DIR, exist_ok=True)
 
+# One-time startup database cleanup to clear user memory and allow fresh signup
+try:
+    db = read_db()
+    if "users" in db:
+        if "jcollz" in db["users"]:
+            del db["users"]["jcollz"]
+            write_db(db)
+            print("Successfully cleared jcollz from database.")
+except Exception as e:
+    print("Database cleanup error:", e)
+
 # Data Models
 class AuthModel(BaseModel):
     username: str
