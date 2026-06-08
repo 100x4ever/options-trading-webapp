@@ -927,27 +927,6 @@ function renderOptionChain() {
       });
     }
 
-    if (atmCall && atmPut) {
-      const callPrem = parseFloat(atmCall.callAsk);
-      const putPrem = parseFloat(atmPut.putAsk);
-      const totalCost = callPrem + putPrem;
-      const winProb = 40; 
-
-      cards.push({
-        title: "ATM Breakout Straddle",
-        type: "Straddle",
-        strikes: `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`,
-        desc: "Pure volatility breakout. Buy both atm call and put. Profit from major price moves in either direction.",
-        winProb: `${winProb}%`,
-        maxProfit: "Unlimited",
-        maxLoss: `$${(totalCost * 100).toFixed(2)}`,
-        premium: `-$${totalCost.toFixed(2)}`,
-        collateral: `$0 (Debit Paid)`,
-        legs: `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`,
-        widthExact: true
-      });
-    }
-
     strategiesGrid.innerHTML = cards.map(c => `
       <div class="best-bet-item hover-trigger ${c.widthExact ? '' : 'width-unavailable'}">
         <div class="bet-header">
@@ -1319,12 +1298,7 @@ function initStrategyWizard() {
           const credit = Math.max(0.10, putCredit + callCredit);
           selectedPremium = `+$${credit.toFixed(2)}`;
           selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
-        } else if (wizDirection === "breakout" && atmCall && atmPut) {
-          selectedStrategy = "Straddle";
-          selectedLegs = `Buy ${atmCall.strike}C / Buy ${atmPut.strike}P`;
-          const cost = parseFloat(atmCall.callAsk) + parseFloat(atmPut.putAsk);
-          selectedPremium = `-$${cost.toFixed(2)}`;
-          selectedRisk = `$${(cost * 100).toFixed(2)}`;
+
         }
 
         if (!selectedStrategy || !selectedLegs) {
