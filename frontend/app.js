@@ -2189,7 +2189,6 @@ function renderTechnicalChart(ticker, tab) {
   })
   .catch(err => console.error("Error drawing technical indicators chart:", err));
 }
-}
 
 // Popular Tickers Setup
 const popularTickers = ["TSLA", "AAPL", "MSFT", "NVDA", "AMD", "PLTR", "SOFI"];
