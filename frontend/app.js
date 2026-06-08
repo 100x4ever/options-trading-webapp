@@ -86,13 +86,13 @@ function checkAuthentication() {
 }
 
 function showAuthScreen() {
-  document.getElementById("authContainer").style.display = "flex";
-  document.getElementById("appLayout").style.display = "none";
+  document.getElementById("authContainer").classList.remove("hidden");
+  document.getElementById("appLayout").classList.add("hidden");
 }
 
 function hideAuthScreen() {
-  document.getElementById("authContainer").style.display = "none";
-  document.getElementById("appLayout").style.display = "grid";
+  document.getElementById("authContainer").classList.add("hidden");
+  document.getElementById("appLayout").classList.remove("hidden");
   
   // Render Dashboard graphs & lists
   renderDashboard();

@@ -1232,3 +1232,7 @@ body {
   background: rgba(255, 61, 0, 0.03) !important;
 }
 
+.hidden {
+  display: none !important;
+}
+
