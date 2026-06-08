@@ -974,12 +974,11 @@ function renderOptionChain() {
   });
 }
 
-window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk) {
-  const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
+window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk, forceExpiry = null, forceQty = null) {
+  const expiry = forceExpiry || document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
   
   // FIXED: Dynamically bind the latest selection count value from the DOM input elements
-  const qtyInput = document.getElementById("orderQtyInput");
-  const qty = qtyInput ? parseInt(qtyInput.value) || 1 : 1;
+  const qty = forceQty || (document.getElementById("orderQtyInput") ? parseInt(document.getElementById("orderQtyInput").value) || 1 : 1);
   
   const rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
   const rawRisk = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
@@ -1124,6 +1123,10 @@ async function saveStateToBackend() {
 let wizDirection = "up";
 let wizSpeed = "fast";
 let wizChart = null;
+window.wizOptionData = null;
+window.wizSelectedPutStrike = null;
+window.wizSelectedCallStrike = null;
+window.wizCurrentTrade = null;
 
 function initStrategyWizard() {
   const directionButtons = document.querySelectorAll("#wizDirectionGroup .wiz-select-btn");
@@ -1144,6 +1147,8 @@ function initStrategyWizard() {
         speedSetting.style.display = "flex";
       }
       
+      window.wizSelectedPutStrike = null;
+      window.wizSelectedCallStrike = null;
       calculateWizardStrategy();
     });
   });
@@ -1153,17 +1158,42 @@ function initStrategyWizard() {
       speedButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       wizSpeed = btn.getAttribute("data-val");
+      
+      window.wizSelectedPutStrike = null;
+      window.wizSelectedCallStrike = null;
       calculateWizardStrategy();
     });
   });
 
-  dateSelect.addEventListener("change", calculateWizardStrategy);
-  tickerInput.addEventListener("input", calculateWizardStrategy);
+  if (dateSelect) {
+    dateSelect.addEventListener("change", () => {
+      window.wizSelectedPutStrike = null;
+      window.wizSelectedCallStrike = null;
+      calculateWizardStrategy();
+    });
+  }
+  if (tickerInput) {
+    tickerInput.addEventListener("input", () => {
+      window.wizSelectedPutStrike = null;
+      window.wizSelectedCallStrike = null;
+      calculateWizardStrategy();
+    });
+  }
 
   const wizQty = document.getElementById("wizQty");
   const wizSpreadWidth = document.getElementById("wizSpreadWidth");
-  if (wizQty) wizQty.addEventListener("input", calculateWizardStrategy);
-  if (wizSpreadWidth) wizSpreadWidth.addEventListener("input", calculateWizardStrategy);
+  if (wizQty) {
+    wizQty.addEventListener("input", () => {
+      calculateWizardStrategy(true);
+    });
+  }
+  if (wizSpreadWidth) {
+    wizSpreadWidth.addEventListener("input", () => {
+      window.wizSelectedPutStrike = null;
+      window.wizSelectedCallStrike = null;
+      calculateWizardStrategy();
+    });
+  }
 
   const wizBudgetButtons = document.querySelectorAll("#wizSpreadBudgetsGroup .wiz-budget-preset-btn");
   wizBudgetButtons.forEach(btn => {
@@ -1172,154 +1202,72 @@ function initStrategyWizard() {
       btn.classList.add("active");
       const budgetVal = parseFloat(btn.getAttribute("data-budget"));
       if (wizSpreadWidth) {
+        window.wizSelectedPutStrike = null;
+        window.wizSelectedCallStrike = null;
         wizSpreadWidth.value = (budgetVal / 100).toFixed(2);
         wizSpreadWidth.dispatchEvent(new Event('input'));
       }
     });
   });
 
-  document.getElementById("loadWizOrderBtn").addEventListener("click", () => {
-    const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
-    
-    const mainQty = document.getElementById("orderQtyInput");
-    const mainWidth = document.getElementById("spreadLimitInput");
-    
-    if (mainQty && wizQty) mainQty.value = wizQty.value;
-    if (mainWidth && wizSpreadWidth) {
-      mainWidth.value = wizSpreadWidth.value;
+  const loadWizOrderBtn = document.getElementById("loadWizOrderBtn");
+  if (loadWizOrderBtn) {
+    loadWizOrderBtn.addEventListener("click", () => {
+      const ticker = tickerInput.value.trim().toUpperCase() || "QQQ";
+      const mainQty = document.getElementById("orderQtyInput");
+      const mainWidth = document.getElementById("spreadLimitInput");
       
-      const mainBudgetButtons = document.querySelectorAll("#spreadBudgetsGroup .budget-preset-btn");
-      mainBudgetButtons.forEach(btn => {
-        const budgetVal = (parseFloat(btn.getAttribute("data-budget")) / 100).toFixed(2);
-        if (budgetVal === parseFloat(wizSpreadWidth.value).toFixed(2)) {
-          btn.classList.add("active");
-        } else {
-          btn.classList.remove("active");
-        }
-      });
-    }
+      if (mainQty && wizQty) mainQty.value = wizQty.value;
+      if (mainWidth && wizSpreadWidth) {
+        mainWidth.value = wizSpreadWidth.value;
+        const mainBudgetButtons = document.querySelectorAll("#spreadBudgetsGroup .budget-preset-btn");
+        mainBudgetButtons.forEach(btn => {
+          const budgetVal = (parseFloat(btn.getAttribute("data-budget")) / 100).toFixed(2);
+          if (budgetVal === parseFloat(wizSpreadWidth.value).toFixed(2)) {
+            btn.classList.add("active");
+          } else {
+            btn.classList.remove("active");
+          }
+        });
+      }
 
-    const optionsNavBtn = document.getElementById("nav-options");
-    if(optionsNavBtn) optionsNavBtn.click();
+      const optionsNavBtn = document.getElementById("nav-options");
+      if(optionsNavBtn) optionsNavBtn.click();
 
-    document.getElementById("underlyingTicker").value = ticker;
-    renderOptionChain();
+      document.getElementById("underlyingTicker").value = ticker;
+      renderOptionChain();
 
-    showHoverPanel(
-      "Wizard Strategy Loaded", 
-      `Loaded option chain for <strong>${ticker}</strong>. Look for target strikes based on the recommended setup.`
-    );
-  });
+      showHoverPanel(
+        "Wizard Strategy Loaded", 
+        `Loaded option chain for <strong>${ticker}</strong>. Look for target strikes based on the recommended setup.`
+      );
+    });
+  }
 
   const executeWizTradeBtn = document.getElementById("executeWizTradeBtn");
   if (executeWizTradeBtn) {
     executeWizTradeBtn.addEventListener("click", () => {
-      const ticker = tickerInput.value.trim().toUpperCase() || "AAPL";
-      
-      const expirySelect = document.getElementById("wizDate");
-      const expiryStr = expirySelect ? expirySelect.value : "";
-      
-      const qty = parseInt(wizQty ? wizQty.value : 1) || 1;
-      const width = parseFloat(wizSpreadWidth ? wizSpreadWidth.value : 1.0) || 1.0;
-      
-      showHoverPanel("Analyzing Strikes", `Fetching option chain data for <strong>${ticker}</strong> (${expiryStr})...`);
-      
-      fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiryStr)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
-      .then(res => res.json())
-      .then(data => {
-        function findStrikeWithWidth(strikes, shortStrikeVal, width, direction, type) {
-          const targetStrikeVal = shortStrikeVal + (direction * width);
-          let closest = null;
-          let minDiff = Infinity;
-          for (const s of strikes) {
-            const val = parseFloat(s.strike);
-            const diff = Math.abs(val - targetStrikeVal);
-            if (diff < minDiff) {
-              minDiff = diff;
-              closest = s;
-            }
-          }
-          return closest;
-        }
-
-        const bpSellPut = findStrikeByDelta(data.strikes, -0.25, 'PUT');
-        const bpBuyPut = bpSellPut ? findStrikeWithWidth(data.strikes, parseFloat(bpSellPut.strike), width, -1, 'PUT') : null;
-
-        const bcSellCall = findStrikeByDelta(data.strikes, 0.25, 'CALL');
-        const bcBuyCall = bcSellCall ? findStrikeWithWidth(data.strikes, parseFloat(bcSellCall.strike), width, 1, 'CALL') : null;
-
-        const dbBuyCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
-        const dbSellCall = dbBuyCall ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyCall.strike), width, 1, 'CALL') : null;
-
-        const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
-        const dbSellPut = dbBuyPut ? findStrikeWithWidth(data.strikes, parseFloat(dbBuyPut.strike), width, -1, 'PUT') : null;
-
-        const atmCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
-        const atmPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
-
-        let selectedStrategy = "";
-        let selectedLegs = "";
-        let selectedPremium = "";
-        let selectedRisk = "";
-
-        if (wizDirection === "up") {
-          if (wizSpeed === "fast" && dbBuyCall && dbSellCall) {
-            selectedStrategy = "Bull Call Debit Spread";
-            selectedLegs = `Buy ${dbBuyCall.strike}C / Sell ${dbSellCall.strike}C`;
-            const cost = Math.max(0.05, parseFloat(dbBuyCall.callAsk) - parseFloat(dbSellCall.callBid));
-            selectedPremium = `-$${cost.toFixed(2)}`;
-            selectedRisk = `$${(cost * 100).toFixed(2)}`;
-          } else if (bpSellPut && bpBuyPut) {
-            selectedStrategy = "Bull Put Credit Spread";
-            selectedLegs = `Sell ${bpSellPut.strike}P / Buy ${bpBuyPut.strike}P`;
-            const credit = Math.max(0.05, parseFloat(bpSellPut.putBid) - parseFloat(bpBuyPut.putAsk));
-            selectedPremium = `+$${credit.toFixed(2)}`;
-            selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
-          }
-        } else if (wizDirection === "down") {
-          if (wizSpeed === "fast" && dbBuyPut && dbSellPut) {
-            selectedStrategy = "Bear Put Debit Spread";
-            selectedLegs = `Buy ${dbBuyPut.strike}P / Sell ${dbSellPut.strike}P`;
-            const cost = Math.max(0.05, parseFloat(dbBuyPut.putAsk) - parseFloat(dbSellPut.putBid));
-            selectedPremium = `-$${cost.toFixed(2)}`;
-            selectedRisk = `$${(cost * 100).toFixed(2)}`;
-          } else if (bcSellCall && bcBuyCall) {
-            selectedStrategy = "Bear Call Credit Spread";
-            selectedLegs = `Sell ${bcSellCall.strike}C / Buy ${bcBuyCall.strike}C`;
-            const credit = Math.max(0.05, parseFloat(bcSellCall.callBid) - parseFloat(bcBuyCall.callAsk));
-            selectedPremium = `+$${credit.toFixed(2)}`;
-            selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
-          }
-        } else if (wizDirection === "sideways" && bpSellPut && bpBuyPut && bcSellCall && bcBuyCall) {
-          selectedStrategy = "Iron Condor";
-          selectedLegs = `Sell ${bcSellCall.strike}C/Buy ${bcBuyCall.strike}C + Sell ${bpSellPut.strike}P/Buy ${bpBuyPut.strike}P`;
-          const putCredit = parseFloat(bpSellPut.putBid) - parseFloat(bpBuyPut.putAsk);
-          const callCredit = parseFloat(bcSellCall.callBid) - parseFloat(bcBuyCall.callAsk);
-          const credit = Math.max(0.10, putCredit + callCredit);
-          selectedPremium = `+$${credit.toFixed(2)}`;
-          selectedRisk = `$${((width - credit) * 100).toFixed(2)}`;
-
-        }
-
-        if (!selectedStrategy || !selectedLegs) {
-          showHoverPanel("Calculation Error", "Could not calculate optimal strikes for this ticker and expiration. Try another asset.");
-          return;
-        }
-
-        tradeSpreadFromChain(ticker, selectedStrategy, selectedLegs, selectedPremium, selectedRisk);
-      })
-      .catch(err => {
-        showHoverPanel("Connection Error", "Failed to retrieve option chain. Ensure Alpaca API Credentials are valid.");
-        console.error(err);
-      });
+      if (window.wizCurrentTrade) {
+        tradeSpreadFromChain(
+          window.wizCurrentTrade.ticker,
+          window.wizCurrentTrade.strategy,
+          window.wizCurrentTrade.legs,
+          window.wizCurrentTrade.premium,
+          window.wizCurrentTrade.risk,
+          window.wizCurrentTrade.expiry,
+          window.wizCurrentTrade.qty
+        );
+      } else {
+        showHoverPanel("Trade Error", "No strategy calculations found. Please try again.");
+      }
     });
   }
 
   calculateWizardStrategy();
 }
 
-function calculateWizardStrategy() {
-  const ticker = document.getElementById("wizTicker").value.trim().toUpperCase() || "AAPL";
+function calculateWizardStrategy(isStrikeAdjustment = false) {
+  const ticker = document.getElementById("wizTicker").value.trim().toUpperCase() || "QQQ";
   const nameLabel = document.getElementById("recStrategyName");
   const textLabel = document.getElementById("recExplainerText");
 
@@ -1336,11 +1284,17 @@ function calculateWizardStrategy() {
   const expirySelect = document.getElementById("wizDate");
   const expiryStr = expirySelect ? expirySelect.value : "";
 
+  if (!isStrikeAdjustment) {
+    window.wizSelectedPutStrike = null;
+    window.wizSelectedCallStrike = null;
+  }
+
   fetch(`/api/options/chain?ticker=${encodeURIComponent(ticker)}&expiry=${encodeURIComponent(expiryStr)}&username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
   .then(data => {
     if (!data.strikes || data.strikes.length === 0) return;
     
+    // Check if selected width is valid
     const checkWidthAvailable = (w) => {
       for (let i = 0; i < data.strikes.length; i++) {
         const s1 = parseFloat(data.strikes[i].strike);
@@ -1390,105 +1344,278 @@ function calculateWizardStrategy() {
         }
       }
     }
+
+    // Helper functions to get target strike from string strike
+    const getStrikeObj = (sVal) => {
+      return data.strikes.find(s => Math.abs(parseFloat(s.strike) - parseFloat(sVal)) < 0.02);
+    };
+
+    const findClosestStrikeObj = (targetVal) => {
+      let closest = null;
+      let minDiff = Infinity;
+      for (const s of data.strikes) {
+        const diff = Math.abs(parseFloat(s.strike) - targetVal);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = s;
+        }
+      }
+      return closest;
+    };
+
+    // Auto defaults using original logic
+    const bpSellPut = findStrikeByDelta(data.strikes, -0.25, 'PUT');
+    const bcSellCall = findStrikeByDelta(data.strikes, 0.25, 'CALL');
+    const dbBuyCall = findStrikeByDelta(data.strikes, 0.50, 'CALL');
+    const dbBuyPut = findStrikeByDelta(data.strikes, -0.50, 'PUT');
+
+    let strategy = "";
+    let explanation = "";
+    let curveType = "";
+    let maxProfit = 0;
+    let maxLoss = 0;
+    let winProb = "50%";
+    let legs = "";
+    let netPrem = 0;
+
+    let showPutSelector = false;
+    let showCallSelector = false;
+
+    if (wizDirection === "up") {
+      if (wizSpeed === "fast") {
+        strategy = "Bull Call Debit Spread";
+        curveType = "bull_call_spread";
+        showCallSelector = true;
+        
+        // Target: Buy ITM Call, Sell OTM Call (+width)
+        if (window.wizSelectedCallStrike === null && dbBuyCall) {
+          window.wizSelectedCallStrike = dbBuyCall.strike;
+        }
+        const refCall = getStrikeObj(window.wizSelectedCallStrike) || dbBuyCall;
+        if (refCall) {
+          const buyStrikeVal = parseFloat(refCall.strike);
+          const sellCallObj = findClosestStrikeObj(buyStrikeVal + width);
+          if (sellCallObj) {
+            const cost = Math.max(0.05, parseFloat(refCall.callAsk) - parseFloat(sellCallObj.callBid));
+            netPrem = -cost;
+            maxLoss = Math.round(cost * 100 * qty);
+            maxProfit = Math.round((width - cost) * 100 * qty);
+            winProb = Math.round(parseFloat(refCall.callDelta) * 100);
+            legs = `Buy ${refCall.strike}C / Sell ${sellCallObj.strike}C`;
+          }
+        }
+        explanation = `
+          <strong>Thesis Setup (Up Quickly) for QQQ:</strong><br>
+          • <strong>Asset Target:</strong> Buy Call at <strong>${window.wizSelectedCallStrike || 'ITM'}</strong>, Sell Call at <strong>+$${width}</strong>.<br>
+          • <strong>Ideal Entry Cost:</strong> Pay around <strong>40% to 45%</strong> of the spread width.<br>
+          • <strong>Theta/Time Decay:</strong> Negative drag. Requires rapid rise before options expire.<br>
+          • <strong>Rule-Based Exit:</strong> Exit at <strong>50% to 75% ROI</strong>.
+        `;
+      } else {
+        strategy = "Bull Put Credit Spread";
+        curveType = "bull_put_spread";
+        showPutSelector = true;
+
+        // Target: Sell OTM Put, Buy further OTM Put (-width)
+        if (window.wizSelectedPutStrike === null && bpSellPut) {
+          window.wizSelectedPutStrike = bpSellPut.strike;
+        }
+        const refPut = getStrikeObj(window.wizSelectedPutStrike) || bpSellPut;
+        if (refPut) {
+          const sellStrikeVal = parseFloat(refPut.strike);
+          const buyPutObj = findClosestStrikeObj(sellStrikeVal - width);
+          if (buyPutObj) {
+            const credit = Math.max(0.05, parseFloat(refPut.putBid) - parseFloat(buyPutObj.putAsk));
+            netPrem = credit;
+            maxProfit = Math.round(credit * 100 * qty);
+            maxLoss = Math.round((width - credit) * 100 * qty);
+            winProb = Math.round((1 - Math.abs(parseFloat(refPut.putDelta))) * 100);
+            legs = `Sell ${refPut.strike}P / Buy ${buyPutObj.strike}P`;
+          }
+        }
+        explanation = `
+          <strong>Thesis Setup (Up Slowly / Flat) for QQQ:</strong><br>
+          • <strong>Asset Target:</strong> Sell Put at <strong>${window.wizSelectedPutStrike || 'OTM'}</strong>, Buy Put at <strong>-$${width}</strong>.<br>
+          • <strong>Ideal Premium Credit:</strong> Collect <strong>25% to 33%</strong> of the spread width.<br>
+          • <strong>Theta/Time Decay:</strong> Positive decay. Time is on your side.<br>
+          • <strong>Rule-Based Exit:</strong> Close at <strong>50% to 60% of max profit</strong>.
+        `;
+      }
+    } else if (wizDirection === "down") {
+      if (wizSpeed === "fast") {
+        strategy = "Bear Put Debit Spread";
+        curveType = "bear_put_spread";
+        showPutSelector = true;
+
+        // Target: Buy ITM Put, Sell OTM Put (-width)
+        if (window.wizSelectedPutStrike === null && dbBuyPut) {
+          window.wizSelectedPutStrike = dbBuyPut.strike;
+        }
+        const refPut = getStrikeObj(window.wizSelectedPutStrike) || dbBuyPut;
+        if (refPut) {
+          const buyStrikeVal = parseFloat(refPut.strike);
+          const sellPutObj = findClosestStrikeObj(buyStrikeVal - width);
+          if (sellPutObj) {
+            const cost = Math.max(0.05, parseFloat(refPut.putAsk) - parseFloat(sellPutObj.putBid));
+            netPrem = -cost;
+            maxLoss = Math.round(cost * 100 * qty);
+            maxProfit = Math.round((width - cost) * 100 * qty);
+            winProb = Math.round(Math.abs(parseFloat(refPut.putDelta)) * 100);
+            legs = `Buy ${refPut.strike}P / Sell ${sellPutObj.strike}P`;
+          }
+        }
+        explanation = `
+          <strong>Thesis Setup (Down Quickly) for QQQ:</strong><br>
+          • <strong>Asset Target:</strong> Buy Put at <strong>${window.wizSelectedPutStrike || 'ITM'}</strong>, Sell Put at <strong>-$${width}</strong>.<br>
+          • <strong>Ideal Entry Cost:</strong> Pay around <strong>40% to 45%</strong> of the spread width.<br>
+          • <strong>Theta/Time Decay:</strong> Negative drag. Requires rapid price drop.<br>
+          • <strong>Rule-Based Exit:</strong> Exit at <strong>50% to 75% ROI</strong>.
+        `;
+      } else {
+        strategy = "Bear Call Credit Spread";
+        curveType = "bear_call_spread";
+        showCallSelector = true;
+
+        // Target: Sell OTM Call, Buy further OTM Call (+width)
+        if (window.wizSelectedCallStrike === null && bcSellCall) {
+          window.wizSelectedCallStrike = bcSellCall.strike;
+        }
+        const refCall = getStrikeObj(window.wizSelectedCallStrike) || bcSellCall;
+        if (refCall) {
+          const sellStrikeVal = parseFloat(refCall.strike);
+          const buyCallObj = findClosestStrikeObj(sellStrikeVal + width);
+          if (buyCallObj) {
+            const credit = Math.max(0.05, parseFloat(refCall.callBid) - parseFloat(buyCallObj.callAsk));
+            netPrem = credit;
+            maxProfit = Math.round(credit * 100 * qty);
+            maxLoss = Math.round((width - credit) * 100 * qty);
+            winProb = Math.round((1 - parseFloat(refCall.callDelta)) * 100);
+            legs = `Sell ${refCall.strike}C / Buy ${buyCallObj.strike}C`;
+          }
+        }
+        explanation = `
+          <strong>Thesis Setup (Down Slowly / Flat) for QQQ:</strong><br>
+          • <strong>Asset Target:</strong> Sell Call at <strong>${window.wizSelectedCallStrike || 'OTM'}</strong>, Buy Call at <strong>+$${width}</strong>.<br>
+          • <strong>Ideal Premium Credit:</strong> Collect <strong>25% to 33%</strong> of the spread width.<br>
+          • <strong>Theta/Time Decay:</strong> Positive decay. High win rate.<br>
+          • <strong>Rule-Based Exit:</strong> Close at <strong>50% to 60% of max profit</strong>.
+        `;
+      }
+    } else if (wizDirection === "sideways") {
+      strategy = "Iron Condor";
+      curveType = "iron_condor";
+      showPutSelector = true;
+      showCallSelector = true;
+
+      if (window.wizSelectedPutStrike === null && bpSellPut) {
+        window.wizSelectedPutStrike = bpSellPut.strike;
+      }
+      if (window.wizSelectedCallStrike === null && bcSellCall) {
+        window.wizSelectedCallStrike = bcSellCall.strike;
+      }
+
+      const refPut = getStrikeObj(window.wizSelectedPutStrike) || bpSellPut;
+      const refCall = getStrikeObj(window.wizSelectedCallStrike) || bcSellCall;
+
+      if (refPut && refCall) {
+        const putSellStrike = parseFloat(refPut.strike);
+        const putBuyObj = findClosestStrikeObj(putSellStrike - width);
+
+        const callSellStrike = parseFloat(refCall.strike);
+        const callBuyObj = findClosestStrikeObj(callSellStrike + width);
+
+        if (putBuyObj && callBuyObj) {
+          const putCredit = parseFloat(refPut.putBid) - parseFloat(putBuyObj.putAsk);
+          const callCredit = parseFloat(refCall.callBid) - parseFloat(callBuyObj.callAsk);
+          const credit = Math.max(0.10, putCredit + callCredit);
+          netPrem = credit;
+          maxProfit = Math.round(credit * 100 * qty);
+          maxLoss = Math.round((width - credit) * 100 * qty);
+          winProb = Math.round((1 - Math.abs(parseFloat(refPut.putDelta)) - parseFloat(refCall.callDelta)) * 100);
+          legs = `Sell ${refCall.strike}C/Buy ${callBuyObj.strike}C + Sell ${refPut.strike}P/Buy ${putBuyObj.strike}P`;
+        }
+      }
+      explanation = `
+        <strong>Thesis Setup (Rangebound/Quiet) for QQQ:</strong><br>
+        • <strong>Asset Target:</strong> Sell OTM Call at <strong>${window.wizSelectedCallStrike || 'OTM'}</strong> and Sell OTM Put at <strong>${window.wizSelectedPutStrike || 'OTM'}</strong>.<br>
+        • <strong>Theta/Time Decay:</strong> Maximum positive decay. Highly sensitive to rangebound markets.<br>
+        • <strong>Rule-Based Exit:</strong> Exit early at <strong>50% max profit</strong>.
+      `;
+    }
+
+    // Populate selectors panel
+    const selectorsContainer = document.getElementById("wizStrikeSelectors");
+    const adjustmentPanel = document.getElementById("wizStrikeAdjustmentPanel");
+    
+    if (selectorsContainer && adjustmentPanel) {
+      if (!showPutSelector && !showCallSelector) {
+        adjustmentPanel.style.display = "none";
+      } else {
+        adjustmentPanel.style.display = "block";
+        let html = "";
+        if (showPutSelector) {
+          html += `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <span style="font-size: 12px; color: var(--text-secondary); font-weight: 500;">Put Strike:</span>
+              <select id="wizPutStrikeSelect" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: var(--text-primary); padding: 6px 12px; font-size: 13px; outline: none; width: 140px; cursor: pointer;">
+                ${data.strikes.map(s => `<option value="${s.strike}" ${s.strike === window.wizSelectedPutStrike ? 'selected' : ''}>$${parseFloat(s.strike).toFixed(1)} (Δ ${s.putDelta})</option>`).join("")}
+              </select>
+            </div>
+          `;
+        }
+        if (showCallSelector) {
+          html += `
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+              <span style="font-size: 12px; color: var(--text-secondary); font-weight: 500;">Call Strike:</span>
+              <select id="wizCallStrikeSelect" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; color: var(--text-primary); padding: 6px 12px; font-size: 13px; outline: none; width: 140px; cursor: pointer;">
+                ${data.strikes.map(s => `<option value="${s.strike}" ${s.strike === window.wizSelectedCallStrike ? 'selected' : ''}>$${parseFloat(s.strike).toFixed(1)} (Δ +${s.callDelta})</option>`).join("")}
+              </select>
+            </div>
+          `;
+        }
+        selectorsContainer.innerHTML = html;
+
+        // Re-bind change listeners
+        const putSelect = document.getElementById("wizPutStrikeSelect");
+        if (putSelect) {
+          putSelect.addEventListener("change", (e) => {
+            window.wizSelectedPutStrike = e.target.value;
+            calculateWizardStrategy(true);
+          });
+        }
+        const callSelect = document.getElementById("wizCallStrikeSelect");
+        if (callSelect) {
+          callSelect.addEventListener("change", (e) => {
+            window.wizSelectedCallStrike = e.target.value;
+            calculateWizardStrategy(true);
+          });
+        }
+      }
+    }
+
+    // Update UI Elements
+    nameLabel.textContent = strategy;
+    textLabel.innerHTML = explanation;
+    profitLabel.textContent = `$${maxProfit}`;
+    lossLabel.textContent = `$${maxLoss}`;
+    probLabel.textContent = `${winProb}%`;
+
+    // Save current trade bundle
+    window.wizCurrentTrade = {
+      ticker: ticker,
+      strategy: strategy,
+      legs: legs,
+      premium: (netPrem >= 0 ? '+' : '-') + `$${Math.abs(netPrem).toFixed(2)}`,
+      risk: `$${(maxLoss / qty).toFixed(2)}`,
+      expiry: expiryStr,
+      qty: qty
+    };
+
+    drawWizPnlChart(curveType);
   })
-  .catch(err => console.error("Error checking wizard spread width availability:", err));
-
-  let strategy = "Bull Call Debit Spread";
-  let explanation = "";
-  let curveType = "debit_call_spread"; 
-  let maxProfit = 0;
-  let maxLoss = 0;
-  let winProb = "50%";
-
-  if (wizDirection === "up") {
-    if (wizSpeed === "fast") {
-      strategy = "Bull Call Debit Spread";
-      explanation = `
-        <strong>Thesis Setup (Up Quickly) for 10 DTE:</strong><br>
-        • <strong>Asset Target:</strong> Buy a Call at <strong>~0.60 Delta (ITM)</strong> and Sell a Call at <strong>~0.40 Delta (OTM)</strong>.<br>
-        • <strong>Ideal Entry Cost:</strong> Pay around <strong>40% to 45%</strong> of the spread width (e.g., pay $2.10 for a $5.00 wide spread).<br>
-        • <strong>Theta/Time Decay:</strong> Negative drag. You need the directional rise to happen within the first 3 to 5 days.<br>
-        • <strong>Rule-Based Exit:</strong> Auto-take profit at <strong>50% to 75% ROI</strong>. Stop loss at <strong>50% of premium paid</strong>.
-      `;
-      maxLoss = Math.round(0.42 * width * 100 * qty);
-      maxProfit = Math.round((width - 0.42 * width) * 100 * qty);
-      winProb = "51%";
-      curveType = "bull_call_spread";
-    } else {
-      strategy = "Bull Put Credit Spread";
-      explanation = `
-        <strong>Thesis Setup (Up Slowly / Sideways) for 10 DTE:</strong><br>
-        • <strong>Asset Target:</strong> Sell a Put at <strong>~0.25 to 0.30 Delta (OTM)</strong> and Buy a Put at <strong>~0.15 to 0.20 Delta (OTM)</strong> for protection.<br>
-        • <strong>Ideal Premium Credit:</strong> Collect <strong>25% to 33%</strong> of the spread width (e.g., collect $1.35 for a $5.00 wide spread).<br>
-        • <strong>Theta/Time Decay:</strong> Positive gain. Time is your best friend; every day it stays flat/rallies, premium decays to pocket profit.<br>
-        • <strong>Rule-Based Exit:</strong> Limit order to close at <strong>50% to 60% of max profit</strong>. Hard stop out if short leg reaches <strong>0.50 Delta</strong>.
-      `;
-      maxProfit = Math.round(0.27 * width * 100 * qty);
-      maxLoss = Math.round((width - 0.27 * width) * 100 * qty);
-      winProb = "72%";
-      curveType = "bull_put_spread";
-    }
-  } else if (wizDirection === "down") {
-    if (wizSpeed === "fast") {
-      strategy = "Bear Put Debit Spread";
-      explanation = `
-        <strong>Thesis Setup (Down Quickly) for 10 DTE:</strong><br>
-        • <strong>Asset Target:</strong> Buy a Put at <strong>~0.60 Delta (ITM)</strong> and Sell a Put at <strong>~0.40 Delta (OTM)</strong>.<br>
-        • <strong>Ideal Entry Cost:</strong> Pay around <strong>40% to 45%</strong> of the spread width (e.g., pay $2.15 for a $5.00 wide spread).<br>
-        • <strong>Theta/Time Decay:</strong> Negative drag. Requires rapid decline within 3 to 5 days before Theta accelerates.<br>
-        • <strong>Rule-Based Exit:</strong> Take profit at <strong>50% to 75% ROI</strong>. Stop out if position loses <strong>50% of premium paid</strong>.
-      `;
-      maxLoss = Math.round(0.44 * width * 100 * qty);
-      maxProfit = Math.round((width - 0.44 * width) * 100 * qty);
-      winProb = "49%";
-      curveType = "bear_put_spread";
-    } else {
-      strategy = "Bear Call Credit Spread";
-      explanation = `
-        <strong>Thesis Setup (Down Slowly / Sideways) for 10 DTE:</strong><br>
-        • <strong>Asset Target:</strong> Sell a Call at <strong>~0.25 to 0.30 Delta (OTM)</strong> and Buy a Call at <strong>~0.15 to 0.20 Delta (OTM)</strong> for protection.<br>
-        • <strong>Ideal Premium Credit:</strong> Collect <strong>25% to 33%</strong> of the spread width (e.g., collect $1.20 for a $5.00 wide spread).<br>
-        • <strong>Theta/Time Decay:</strong> Positive gain. High win rate. As long as stock does not rally, premium melts into profit.<br>
-        • <strong>Rule-Based Exit:</strong> Auto-take profit at <strong>50% to 60% of max profit</strong>. Stop out if short leg delta touches <strong>0.50 Delta</strong>.
-      `;
-      maxProfit = Math.round(0.24 * width * 100 * qty);
-      maxLoss = Math.round((width - 0.24 * width) * 100 * qty);
-      winProb = "74%";
-      curveType = "bear_call_spread";
-    }
-  } else if (wizDirection === "sideways") {
-    strategy = "Iron Condor";
-    explanation = `
-      <strong>Thesis Setup (Rangebound/Quiet) for 10 DTE:</strong><br>
-      • <strong>Asset Target:</strong> Sell an OTM Call Spread (0.25 Delta Short Call) AND Sell an OTM Put Spread (0.25 Delta Short Put).<br>
-      • <strong>Theta/Time Decay:</strong> Maximum positive gain. Double decay speed from both wings. Highly sensitive to quiet markets.<br>
-      • <strong>Rule-Based Exit:</strong> Take profit early at <strong>50% max profit</strong>. Exit instantly if short strike on either leg is breached.
-    `;
-    maxProfit = Math.round(0.35 * width * 100 * qty);
-    maxLoss = Math.round((width - 0.35 * width) * 100 * qty);
-    winProb = "68%";
-    curveType = "iron_condor";
-  } else if (wizDirection === "breakout") {
-    strategy = "Long Straddle / Strangle";
-    explanation = `
-      <strong>Thesis Setup (Big Breakout/Earnings) for 10 DTE:</strong><br>
-      • <strong>Asset Target:</strong> Buy at-the-money (0.50 Delta) Call AND Buy at-the-money (0.50 Delta) Put.<br>
-      • <strong>Implied Volatility:</strong> Buy during Low IV, sell when IV spikes during the breakout.<br>
-      • <strong>Rule-Based Exit:</strong> Close at <strong>50% return</strong> or cut loss if position value drops by <strong>50%</strong>. Never hold through weekend unless move is active.
-    `;
-    maxLoss = Math.round(420 * qty);
-    maxProfit = "Unlimited";
-    winProb = "38%";
-    curveType = "straddle";
-  }
-
-  nameLabel.textContent = strategy;
-  textLabel.innerHTML = explanation;
-  profitLabel.textContent = maxProfit === "Unlimited" ? "Unlimited" : `$${maxProfit}`;
-  lossLabel.textContent = `$${maxLoss}`;
-  probLabel.textContent = winProb;
-
-  drawWizPnlChart(curveType);
+  .catch(err => {
+    console.error("Error loading wizard strategy calculations:", err);
+  });
 }
 
 function drawWizPnlChart(curveType) {

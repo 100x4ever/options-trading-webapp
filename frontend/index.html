@@ -80,16 +80,16 @@
       </div>
 
       <nav class="nav-links">
-        <button class="nav-btn active" data-tab="dashboard" id="nav-dashboard">
+        <button class="nav-btn" data-tab="dashboard" id="nav-dashboard" style="display: none;">
           <i data-lucide="layout-dashboard"></i> Dashboard
         </button>
-        <button class="nav-btn" data-tab="wizard" id="nav-wizard">
+        <button class="nav-btn active" data-tab="wizard" id="nav-wizard">
           <i data-lucide="compass"></i> Strategy Wizard
         </button>
-        <button class="nav-btn" data-tab="positions" id="nav-positions">
+        <button class="nav-btn" data-tab="positions" id="nav-positions" style="display: none;">
           <i data-lucide="line-chart"></i> Positions
         </button>
-        <button class="nav-btn" data-tab="options" id="nav-options">
+        <button class="nav-btn" data-tab="options" id="nav-options" style="display: none;">
           <i data-lucide="activity"></i> Option Chain
         </button>
         <button class="nav-btn" data-tab="config" id="nav-config">
@@ -112,7 +112,7 @@
     <main class="main-content">
       
       <!-- TAB: DASHBOARD -->
-      <section class="tab-content active" id="tab-dashboard">
+      <section class="tab-content" id="tab-dashboard">
         <header class="tab-header">
           <h1>Dashboard Overview</h1>
           <p>Real-time options portfolio metrics and performance tracker.</p>
@@ -164,7 +164,7 @@
       </section>
 
       <!-- TAB: STRATEGY WIZARD -->
-      <section class="tab-content" id="tab-wizard">
+      <section class="tab-content active" id="tab-wizard">
         <header class="tab-header">
           <h1>Strategy Wizard</h1>
           <p>Translate your market thesis into a high-probability options trade layout.</p>
@@ -215,11 +215,8 @@
               <label for="wizSpreadWidth">Spread Width ($)</label>
               <input type="number" id="wizSpreadWidth" value="1.00" step="0.50" min="0.5" max="50" style="width: 100%; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none; margin-bottom: 8px;">
               <div class="wiz-btn-group" id="wizSpreadBudgetsGroup" style="margin-top: 4px;">
-                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="50">0.5</button>
                 <button class="wiz-select-btn wiz-budget-preset-btn active" data-budget="100">1.0</button>
-                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="150">1.5</button>
                 <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="200">2.0</button>
-                <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="250">2.5</button>
                 <button class="wiz-select-btn wiz-budget-preset-btn" data-budget="500">5.0</button>
               </div>
             </div>
@@ -229,7 +226,14 @@
           <div class="glass-card wizard-rec-card">
             <h3>Recommended Strategy</h3>
             <div class="strategy-badge" id="recStrategyName">Bull Call Debit Spread</div>
-            
+
+            <!-- Dynamic Strike Adjustment Panel -->
+            <div id="wizStrikeAdjustmentPanel" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 16px; margin-bottom: 16px;">
+              <h4 style="font-size: 13px; font-weight: 600; color: var(--accent-neutral); margin-bottom: 10px;">Adjust Strike Prices</h4>
+              <div id="wizStrikeSelectors" style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- Populated dynamically by JS -->
+              </div>
+            </div>
             <div class="rec-explainer">
               <h4 style="margin-bottom: 8px; color: var(--accent-neutral);">Plain-English Explanation</h4>
               <p id="recExplainerText">Guiding explanation text loads here...</p>
@@ -245,11 +249,8 @@
               <div><strong>Prob. of Profit:</strong> <span id="wizWinProb" style="color: var(--accent-neutral);">55%</span></div>
             </div>
 
-            <div style="display: flex; gap: 12px; margin-top: 20px;">
-              <button class="primary-btn" id="loadWizOrderBtn" style="flex: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);">
-                Customize in Chain
-              </button>
-              <button class="primary-btn" id="executeWizTradeBtn" style="flex: 1; background: var(--accent-neutral); border-color: var(--accent-neutral); color: #000; font-weight: 700;">
+            <div style="margin-top: 20px;">
+              <button class="primary-btn" id="executeWizTradeBtn" style="background: var(--accent-neutral); border-color: var(--accent-neutral); color: #000; font-weight: 700;">
                 Transmit Order
               </button>
             </div>
