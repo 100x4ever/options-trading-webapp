@@ -770,6 +770,7 @@ function renderOptionChain() {
       let minDiff = Infinity;
       for (const s of strikes) {
         const val = parseFloat(s.strike);
+        if (Math.abs(val - shortStrikeVal) < 0.02) continue;
         const diff = Math.abs(val - targetStrikeVal);
         if (diff < minDiff) {
           minDiff = diff;
@@ -1350,11 +1351,15 @@ function calculateWizardStrategy(isStrikeAdjustment = false) {
       return data.strikes.find(s => Math.abs(parseFloat(s.strike) - parseFloat(sVal)) < 0.02);
     };
 
-    const findClosestStrikeObj = (targetVal) => {
+    const findClosestStrikeObj = (targetVal, excludeVal = null) => {
       let closest = null;
       let minDiff = Infinity;
       for (const s of data.strikes) {
-        const diff = Math.abs(parseFloat(s.strike) - targetVal);
+        const val = parseFloat(s.strike);
+        if (excludeVal !== null && Math.abs(val - parseFloat(excludeVal)) < 0.02) {
+          continue;
+        }
+        const diff = Math.abs(val - targetVal);
         if (diff < minDiff) {
           minDiff = diff;
           closest = s;
@@ -1394,7 +1399,7 @@ function calculateWizardStrategy(isStrikeAdjustment = false) {
         const refCall = getStrikeObj(window.wizSelectedCallStrike) || dbBuyCall;
         if (refCall) {
           const buyStrikeVal = parseFloat(refCall.strike);
-          const sellCallObj = findClosestStrikeObj(buyStrikeVal + width);
+          const sellCallObj = findClosestStrikeObj(buyStrikeVal + width, refCall.strike);
           if (sellCallObj) {
             const cost = Math.max(0.05, parseFloat(refCall.callAsk) - parseFloat(sellCallObj.callBid));
             netPrem = -cost;
@@ -1423,7 +1428,7 @@ function calculateWizardStrategy(isStrikeAdjustment = false) {
         const refPut = getStrikeObj(window.wizSelectedPutStrike) || bpSellPut;
         if (refPut) {
           const sellStrikeVal = parseFloat(refPut.strike);
-          const buyPutObj = findClosestStrikeObj(sellStrikeVal - width);
+          const buyPutObj = findClosestStrikeObj(sellStrikeVal - width, refPut.strike);
           if (buyPutObj) {
             const credit = Math.max(0.05, parseFloat(refPut.putBid) - parseFloat(buyPutObj.putAsk));
             netPrem = credit;
@@ -1454,7 +1459,7 @@ function calculateWizardStrategy(isStrikeAdjustment = false) {
         const refPut = getStrikeObj(window.wizSelectedPutStrike) || dbBuyPut;
         if (refPut) {
           const buyStrikeVal = parseFloat(refPut.strike);
-          const sellPutObj = findClosestStrikeObj(buyStrikeVal - width);
+          const sellPutObj = findClosestStrikeObj(buyStrikeVal - width, refPut.strike);
           if (sellPutObj) {
             const cost = Math.max(0.05, parseFloat(refPut.putAsk) - parseFloat(sellPutObj.putBid));
             netPrem = -cost;
@@ -1483,7 +1488,7 @@ function calculateWizardStrategy(isStrikeAdjustment = false) {
         const refCall = getStrikeObj(window.wizSelectedCallStrike) || bcSellCall;
         if (refCall) {
           const sellStrikeVal = parseFloat(refCall.strike);
-          const buyCallObj = findClosestStrikeObj(sellStrikeVal + width);
+          const buyCallObj = findClosestStrikeObj(sellStrikeVal + width, refCall.strike);
           if (buyCallObj) {
             const credit = Math.max(0.05, parseFloat(refCall.callBid) - parseFloat(buyCallObj.callAsk));
             netPrem = credit;
@@ -1519,10 +1524,10 @@ function calculateWizardStrategy(isStrikeAdjustment = false) {
 
       if (refPut && refCall) {
         const putSellStrike = parseFloat(refPut.strike);
-        const putBuyObj = findClosestStrikeObj(putSellStrike - width);
+        const putBuyObj = findClosestStrikeObj(putSellStrike - width, refPut.strike);
 
         const callSellStrike = parseFloat(refCall.strike);
-        const callBuyObj = findClosestStrikeObj(callSellStrike + width);
+        const callBuyObj = findClosestStrikeObj(callSellStrike + width, refCall.strike);
 
         if (putBuyObj && callBuyObj) {
           const putCredit = parseFloat(refPut.putBid) - parseFloat(putBuyObj.putAsk);
