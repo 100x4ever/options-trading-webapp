@@ -589,7 +589,9 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
     r = 0.045 
     sigma = 0.22 
     
-    if underlying_price > 500:
+    if ticker_upper == "QQQ":
+        step = 1.0
+    elif underlying_price > 500:
         step = 10
     elif underlying_price > 150:
         step = 5
@@ -599,7 +601,11 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
         step = 1
         
     atm_strike = round(underlying_price / step) * step
-    strikes_list = [atm_strike + i * step for i in range(-4, 5)]
+    
+    if ticker_upper == "QQQ":
+        strikes_list = [atm_strike + i * step for i in range(-15, 16)]
+    else:
+        strikes_list = [atm_strike + i * step for i in range(-4, 5)]
     
     strikes_data = []
     for strike in strikes_list:
