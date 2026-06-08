@@ -617,6 +617,17 @@ function renderDashboard() {
     fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
     .then(res => res.json())
     .then(positions => {
+      let totalPnL = 0;
+      positions.forEach(pos => {
+        const val = parseFloat(pos.pnl.replace(/[^\d.-]/g, '')) || 0;
+        totalPnL += val;
+      });
+      const pnlEl = document.getElementById("navPnL");
+      if (pnlEl) {
+        pnlEl.textContent = (totalPnL >= 0 ? '+' : '') + `$${totalPnL.toFixed(2)} Live PnL`;
+        pnlEl.className = `metric-change ${totalPnL >= 0 ? 'positive' : 'negative'}`;
+      }
+
       if (positions.length === 0) {
         strategySummary.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 16px; font-size: 13px;">No active option/stock positions.</div>`;
         return;
@@ -1960,6 +1971,13 @@ function renderTechnicalChart(ticker, tab) {
   fetch(`/api/chart/technical?ticker=${encodeURIComponent(ticker)}`)
   .then(res => res.json())
   .then(data => {
+    if (isDash) {
+      const livePriceEl = document.getElementById("dashLivePrice");
+      if (livePriceEl && data.closes && data.closes.length > 0) {
+        const lastPrice = data.closes[data.closes.length - 1];
+        livePriceEl.textContent = `$${parseFloat(lastPrice).toFixed(2)}`;
+      }
+    }
     const ctxMain = mainCanvas.getContext("2d");
     let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : posTechChart);
     if (currentMainChart) currentMainChart.destroy();
