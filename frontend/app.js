@@ -28,6 +28,8 @@ let wizTechChart = null;
 let wizStochChart = null;
 let posTechChart = null;
 let posStochChart = null;
+let dashTechChart = null;
+let dashStochChart = null;
 
 // Tooltip dictionary mapping hover-trigger names to detailed descriptions
 const tooltips = {
@@ -1897,10 +1899,33 @@ function initTechnicalCharts() {
     });
   }
 
+  // Reload dashboard charts on dashboard tab click
+  const dashboardNavBtn = document.getElementById("nav-dashboard");
+  if (dashboardNavBtn) {
+    dashboardNavBtn.addEventListener("click", () => {
+      setTimeout(() => {
+        renderTechnicalChart("QQQ", "dashboard");
+        renderDashboard();
+        renderPositions();
+      }, 100);
+    });
+  }
+
   setTimeout(() => {
     renderTechnicalChart("AAPL", "wizard");
     renderTechnicalChart("QQQ", "positions");
+    renderTechnicalChart("QQQ", "dashboard");
   }, 1000);
+
+  // Auto-refresh QQQ Dashboard chart, account balance, and positions every 5 seconds for close to live data
+  setInterval(() => {
+    const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
+    if (activeTab === "dashboard") {
+      renderTechnicalChart("QQQ", "dashboard");
+      renderDashboard();
+      renderPositions();
+    }
+  }, 5000);
 }
 
 function debounce(func, wait) {
@@ -1917,8 +1942,16 @@ function debounce(func, wait) {
 
 function renderTechnicalChart(ticker, tab) {
   const isWiz = tab === "wizard";
-  const mainCanvasId = isWiz ? "technicalChartCanvas" : "positionTechnicalChartCanvas";
-  const stochCanvasId = isWiz ? "stochasticChartCanvas" : "positionStochasticChartCanvas";
+  const isDash = tab === "dashboard";
+  let mainCanvasId = "positionTechnicalChartCanvas";
+  let stochCanvasId = "positionStochasticChartCanvas";
+  if (isWiz) {
+    mainCanvasId = "technicalChartCanvas";
+    stochCanvasId = "stochasticChartCanvas";
+  } else if (isDash) {
+    mainCanvasId = "dashTechnicalChartCanvas";
+    stochCanvasId = "dashStochasticChartCanvas";
+  }
   
   const mainCanvas = document.getElementById(mainCanvasId);
   const stochCanvas = document.getElementById(stochCanvasId);
@@ -1928,7 +1961,7 @@ function renderTechnicalChart(ticker, tab) {
   .then(res => res.json())
   .then(data => {
     const ctxMain = mainCanvas.getContext("2d");
-    let currentMainChart = isWiz ? wizTechChart : posTechChart;
+    let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : posTechChart);
     if (currentMainChart) currentMainChart.destroy();
     
     const isMobile = window.innerWidth <= 900;
@@ -2047,10 +2080,11 @@ function renderTechnicalChart(ticker, tab) {
     });
     
     if (isWiz) wizTechChart = newMainChart;
+    else if (isDash) dashTechChart = newMainChart;
     else posTechChart = newMainChart;
     
     const ctxStoch = stochCanvas.getContext("2d");
-    let currentStochChart = isWiz ? wizStochChart : posStochChart;
+    let currentStochChart = isWiz ? wizStochChart : (isDash ? dashStochChart : posStochChart);
     if (currentStochChart) currentStochChart.destroy();
     
     const newStochChart = new Chart(ctxStoch, {
@@ -2106,6 +2140,7 @@ function renderTechnicalChart(ticker, tab) {
     });
     
     if (isWiz) wizStochChart = newStochChart;
+    else if (isDash) dashStochChart = newStochChart;
     else posStochChart = newStochChart;
   })
   .catch(err => console.error("Error drawing technical indicators chart:", err));

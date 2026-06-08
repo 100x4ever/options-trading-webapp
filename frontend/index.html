@@ -139,6 +139,22 @@
             </div>
           </div>
         </div>
+
+        <!-- DASHBOARD QQQ TECHNICAL CHART CARD -->
+        <div class="glass-card chart-card" style="margin-top: 20px;">
+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h3><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> QQQ Technical Candlestick Chart (1h Candles, 1 Week)</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Overlay: 30 HMA (Hull Moving Average), Supertrend (12, 2.2). Oscillator: Stochastic (14, 4%D & 40, 4%D).</p>
+            </div>
+          </div>
+          <div class="chart-container main-tech-chart">
+            <canvas id="dashTechnicalChartCanvas"></canvas>
+          </div>
+          <div class="chart-container stoch-tech-chart">
+            <canvas id="dashStochasticChartCanvas"></canvas>
+          </div>
+        </div>
       </section>
 
       <!-- TAB: STRATEGY WIZARD -->
