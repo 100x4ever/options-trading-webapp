@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List
 
 # Alpaca Client imports
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest
+from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest, MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 
 app = FastAPI(title="AuraTrade Backend Server")
@@ -689,7 +689,9 @@ def execute_trade(trade: TradeModel, username: str):
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         
         try:
-            price_val = float(trade.price.replace('$', '').replace('+', '').strip())
+            # Absolute value of limit price is required because debits are represented as negative values (e.g. -$1.50)
+            # but limit order prices must be positive floats.
+            price_val = abs(float(trade.price.replace('$', '').replace('+', '').strip()))
         except Exception:
             price_val = 1.00 
             
@@ -751,12 +753,11 @@ def execute_trade(trade: TradeModel, username: str):
         else:
             leg = order_legs[0] if len(order_legs) > 0 else {"side": OrderSide.BUY, "strike": 100.0, "type": "CALL"}
             osi_symbol = format_osi_symbol(trade.ticker, expiry_yymmdd, leg["type"], leg["strike"])
-            order_request = LimitOrderRequest(
+            order_request = MarketOrderRequest(
                 symbol=osi_symbol,
                 qty=trade.qty,
                 side=leg["side"],
-                time_in_force=TimeInForce.DAY,
-                limit_price=price_val
+                time_in_force=TimeInForce.DAY
             )
             order = trading_client.submit_order(order_request)
             
