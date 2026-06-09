@@ -287,6 +287,19 @@ def get_alpaca_account(username: str, profile: str):
             "error": str(e)
         }
 
+def get_underlying_price(ticker: str) -> float:
+    ticker_upper = ticker.strip().upper()
+    fallbacks = {"QQQ": 740.0, "AAPL": 310.0, "TSLA": 180.0, "MSFT": 420.0, "NVDA": 120.0}
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=3)
+        if res.status_code == 200:
+            return float(res.json()["chart"]["result"][0]["meta"]["regularMarketPrice"])
+    except Exception:
+        pass
+    return fallbacks.get(ticker_upper, 150.0)
+
 # Retrieve Live Positions Table
 @app.get("/api/positions")
 def get_alpaca_positions(username: str, profile: str):
@@ -308,6 +321,10 @@ def get_alpaca_positions(username: str, profile: str):
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         positions = trading_client.get_all_positions()
         
+        underlying_prices = {}
+        r = 0.045
+        sigma = 0.22
+
         parsed_options = []
         other_positions = []
         
@@ -321,6 +338,19 @@ def get_alpaca_positions(username: str, profile: str):
                 qty = int(pos.qty)
                 side = "buy" if qty > 0 else "sell"
                 
+                try:
+                    exp_date = date(2000 + int(expiry_yymmdd[0:2]), int(expiry_yymmdd[2:4]), int(expiry_yymmdd[4:6]))
+                    dte = max(1, (exp_date - date.today()).days)
+                except Exception:
+                    dte = 10
+                t = dte / 365.0
+
+                if ticker not in underlying_prices:
+                    underlying_prices[ticker] = get_underlying_price(ticker)
+                s = underlying_prices[ticker]
+
+                leg_greeks = calculate_greeks(s, strike_val, t, r, sigma, opt_type)
+
                 parsed_options.append({
                     "pos": pos,
                     "symbol": symbol,
@@ -332,7 +362,10 @@ def get_alpaca_positions(username: str, profile: str):
                     "side": side,
                     "unrealized_pl": float(pos.unrealized_pl),
                     "avg_entry_price": float(pos.avg_entry_price),
-                    "current_price": float(pos.current_price)
+                    "current_price": float(pos.current_price),
+                    "delta": leg_greeks["delta"],
+                    "gamma": leg_greeks["gamma"],
+                    "theta": leg_greeks["theta"]
                 })
             else:
                 other_positions.append(pos)
@@ -383,6 +416,10 @@ def get_alpaca_positions(username: str, profile: str):
                                 pnl_str = f"+${total_pnl:.2f}" if total_pnl >= 0 else f"-${abs(total_pnl):.2f}"
                                 exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
                                 
+                                total_delta = sum(l["delta"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs) * q
+                                total_gamma = sum(l["gamma"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs) * q
+                                total_theta = sum(l["theta"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs) * q
+
                                 formatted_positions.append({
                                     "ticker": ticker,
                                     "type": "Iron Condor",
@@ -392,8 +429,9 @@ def get_alpaca_positions(username: str, profile: str):
                                     "qty": q,
                                     "avg": "-",
                                     "mark": "-",
-                                    "delta": "-",
-                                    "theta": "-",
+                                    "delta": f"{total_delta:+.2f}",
+                                    "gamma": f"{total_gamma:+.4f}",
+                                    "theta": f"{total_theta:+.2f}",
                                     "pnl": pnl_str,
                                     "status": "positive" if total_pnl >= 0 else "negative"
                                 })
@@ -438,6 +476,10 @@ def get_alpaca_positions(username: str, profile: str):
                         pnl_str = f"+${total_pnl:.2f}" if total_pnl >= 0 else f"-${abs(total_pnl):.2f}"
                         exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
                         
+                        total_delta = sum(l["delta"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2]) * q
+                        total_gamma = sum(l["gamma"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2]) * q
+                        total_theta = sum(l["theta"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2]) * q
+
                         formatted_positions.append({
                             "ticker": ticker,
                             "type": strat_name,
@@ -447,8 +489,9 @@ def get_alpaca_positions(username: str, profile: str):
                             "qty": q,
                             "avg": "-",
                             "mark": "-",
-                            "delta": "-",
-                            "theta": "-",
+                            "delta": f"{total_delta:+.2f}",
+                            "gamma": f"{total_gamma:+.4f}",
+                            "theta": f"{total_theta:+.2f}",
                             "pnl": pnl_str,
                             "status": "positive" if total_pnl >= 0 else "negative"
                         })
@@ -471,17 +514,23 @@ def get_alpaca_positions(username: str, profile: str):
                     pnl_val = leg["unrealized_pl"]
                     pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
                     
+                    leg_qty = int(pos.qty)
+                    total_delta = leg["delta"] * leg_qty
+                    total_gamma = leg["gamma"] * leg_qty
+                    total_theta = leg["theta"] * leg_qty
+
                     formatted_positions.append({
                         "ticker": ticker,
                         "type": "Call" if leg["type"] == "CALL" else "Put",
                         "strike": f"{strike_val:.2f}",
                         "exp": exp_clean,
                         "expiry_yymmdd": expiry_yymmdd,
-                        "qty": int(pos.qty),
+                        "qty": leg_qty,
                         "avg": f"{leg['avg_entry_price']:.2f}",
                         "mark": f"{leg['current_price']:.2f}",
-                        "delta": "+0.50" if leg["type"] == "CALL" else "-0.50",
-                        "theta": "-0.15",
+                        "delta": f"{total_delta:+.2f}",
+                        "gamma": f"{total_gamma:+.4f}",
+                        "theta": f"{total_theta:+.2f}",
                         "pnl": pnl_str,
                         "status": "positive" if pnl_val >= 0 else "negative"
                     })
@@ -489,16 +538,19 @@ def get_alpaca_positions(username: str, profile: str):
         for pos in other_positions:
             pnl_val = float(pos.unrealized_pl)
             pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
+            
+            qty_val = int(pos.qty)
             formatted_positions.append({
                 "ticker": pos.symbol,
                 "type": "Stock",
                 "strike": "-",
                 "exp": "-",
-                "qty": int(pos.qty),
+                "qty": qty_val,
                 "avg": f"{float(pos.avg_entry_price):.2f}",
                 "mark": f"{float(pos.current_price):.2f}",
-                "delta": "1.00",
-                "theta": "0.00",
+                "delta": f"{1.0 * qty_val:+.2f}",
+                "gamma": "+0.0000",
+                "theta": "+0.00",
                 "pnl": pnl_str,
                 "status": "positive" if pnl_val >= 0 else "negative"
             })

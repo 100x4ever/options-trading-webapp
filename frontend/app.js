@@ -31,6 +31,10 @@ let posStochChart = null;
 let dashTechChart = null;
 let dashStochChart = null;
 
+// Track expanded position details
+const expandedPositions = new Set();
+const expandedDashboardPositions = new Set();
+
 // Tooltip dictionary mapping hover-trigger names to detailed descriptions
 const tooltips = {
   "Net Asset Value": "<strong>Net Asset Value (NAV)</strong><br><br>The total net worth of this account profile. Calculated as Cash Balance + Market Value of all Long options - Market Value of Short options.",
@@ -634,19 +638,43 @@ function renderDashboard() {
       }
       
       strategySummary.innerHTML = positions.map(pos => {
+        const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
+        const isExpanded = expandedDashboardPositions.has(posKey);
+        
         const closeBtnHtml = pos.expiry_yymmdd ? `
-          <button class="action-btn-close" onclick="handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+          <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
         ` : '';
+
+        const greeksHtml = isExpanded ? `
+          <div class="strategy-greeks-detail" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.05); display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 11px; text-align: center;">
+            <div>
+              <span style="color: var(--text-muted); display: block; font-size: 9px; text-transform: uppercase;">Net Delta</span>
+              <strong style="color: var(--accent-neutral);">${pos.delta}</strong>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block; font-size: 9px; text-transform: uppercase;">Net Gamma</span>
+              <strong style="color: var(--accent-neutral);">${pos.gamma}</strong>
+            </div>
+            <div>
+              <span style="color: var(--text-muted); display: block; font-size: 9px; text-transform: uppercase;">Net Theta</span>
+              <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+            </div>
+          </div>
+        ` : '';
+
         return `
-          <div class="strategy-item hover-trigger">
-            <div class="strategy-info">
-              <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
-              <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty}</span>
+          <div class="strategy-item hover-trigger" style="cursor: pointer; display: block;" onclick="toggleDashboardPosition('${posKey}')">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div class="strategy-info">
+                <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
+                <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
+                ${closeBtnHtml}
+              </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
-              ${closeBtnHtml}
-            </div>
+            ${greeksHtml}
           </div>
         `;
       }).join("");
@@ -670,12 +698,15 @@ function renderPositions() {
     }
     
     tbody.innerHTML = positions.map(pos => {
+      const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
+      const isExpanded = expandedPositions.has(posKey);
+      
       const closeBtnHtml = pos.expiry_yymmdd ? `
-        <button class="action-btn-close" onclick="handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+        <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
       ` : '-';
       
-      return `
-        <tr>
+      const mainRowHtml = `
+        <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
           <td><strong>${pos.ticker}</strong></td>
           <td>${pos.type}</td>
           <td>${pos.strike !== "-" ? "$" + pos.strike : "-"}</td>
@@ -683,12 +714,38 @@ function renderPositions() {
           <td>${pos.qty}</td>
           <td>$${pos.avg}</td>
           <td>$${pos.mark}</td>
-          <td class="positive">${pos.delta}</td>
-          <td class="negative">${pos.theta}</td>
+          <td class="${parseFloat(pos.delta) >= 0 ? 'positive' : 'negative'}">${pos.delta}</td>
+          <td class="${parseFloat(pos.theta) >= 0 ? 'positive' : 'negative'}">${pos.theta}</td>
           <td class="${pos.status}">${pos.pnl}</td>
           <td>${closeBtnHtml}</td>
         </tr>
       `;
+      
+      const detailRowHtml = isExpanded ? `
+        <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
+          <td colspan="11" style="padding: 12px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="display: flex; gap: 40px; align-items: center;">
+              <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
+              <div style="display: flex; gap: 24px;">
+                <div style="font-size: 13px;">
+                  <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
+                  <strong>${pos.delta}</strong>
+                </div>
+                <div style="font-size: 13px;">
+                  <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
+                  <strong>${pos.gamma}</strong>
+                </div>
+                <div style="font-size: 13px;">
+                  <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
+                  <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      ` : '';
+      
+      return mainRowHtml + detailRowHtml;
     }).join("");
   })
   .catch(err => {
@@ -1946,8 +2003,10 @@ function initTechnicalCharts() {
   // Auto-refresh QQQ Dashboard chart, account balance, and positions every 5 seconds for close to live data
   setInterval(() => {
     const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
-    if (activeTab === "dashboard") {
-      renderTechnicalChart("QQQ", "dashboard");
+    if (activeTab === "dashboard" || activeTab === "positions") {
+      if (activeTab === "dashboard") {
+        renderTechnicalChart("QQQ", "dashboard");
+      }
       renderDashboard();
       renderPositions();
     }
@@ -2348,5 +2407,23 @@ window.handleClosePosition = function(ticker, type, strike, qty, expiry_yymmdd) 
   .catch(err => {
     alert(`Error: ${err.message}`);
   });
+};
+
+window.toggleDashboardPosition = function(posKey) {
+  if (expandedDashboardPositions.has(posKey)) {
+    expandedDashboardPositions.delete(posKey);
+  } else {
+    expandedDashboardPositions.add(posKey);
+  }
+  renderDashboard();
+};
+
+window.toggleTablePosition = function(posKey) {
+  if (expandedPositions.has(posKey)) {
+    expandedPositions.delete(posKey);
+  } else {
+    expandedPositions.add(posKey);
+  }
+  renderPositions();
 };
 
