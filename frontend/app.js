@@ -633,15 +633,23 @@ function renderDashboard() {
         return;
       }
       
-      strategySummary.innerHTML = positions.map(pos => `
-        <div class="strategy-item hover-trigger">
-          <div class="strategy-info">
-            <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
-            <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty}</span>
+      strategySummary.innerHTML = positions.map(pos => {
+        const closeBtnHtml = pos.expiry_yymmdd ? `
+          <button class="action-btn-close" onclick="handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+        ` : '';
+        return `
+          <div class="strategy-item hover-trigger">
+            <div class="strategy-info">
+              <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
+              <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
+              ${closeBtnHtml}
+            </div>
           </div>
-          <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
-        </div>
-      `).join("");
+        `;
+      }).join("");
     })
     .catch(err => {
       strategySummary.innerHTML = `<div style="text-align: center; color: var(--accent-negative); padding: 16px; font-size: 13px;">Failed to fetch active strategies.</div>`;
@@ -657,27 +665,34 @@ function renderPositions() {
   .then(res => res.json())
   .then(positions => {
     if (positions.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
       return;
     }
     
-    tbody.innerHTML = positions.map(pos => `
-      <tr>
-        <td><strong>${pos.ticker}</strong></td>
-        <td>${pos.type}</td>
-        <td>${pos.strike !== "-" ? "$" + pos.strike : "-"}</td>
-        <td>${pos.exp}</td>
-        <td>${pos.qty}</td>
-        <td>$${pos.avg}</td>
-        <td>$${pos.mark}</td>
-        <td class="positive">${pos.delta}</td>
-        <td class="negative">${pos.theta}</td>
-        <td class="${pos.status}">${pos.pnl}</td>
-      </tr>
-    `).join("");
+    tbody.innerHTML = positions.map(pos => {
+      const closeBtnHtml = pos.expiry_yymmdd ? `
+        <button class="action-btn-close" onclick="handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+      ` : '-';
+      
+      return `
+        <tr>
+          <td><strong>${pos.ticker}</strong></td>
+          <td>${pos.type}</td>
+          <td>${pos.strike !== "-" ? "$" + pos.strike : "-"}</td>
+          <td>${pos.exp}</td>
+          <td>${pos.qty}</td>
+          <td>$${pos.avg}</td>
+          <td>$${pos.mark}</td>
+          <td class="positive">${pos.delta}</td>
+          <td class="negative">${pos.theta}</td>
+          <td class="${pos.status}">${pos.pnl}</td>
+          <td>${closeBtnHtml}</td>
+        </tr>
+      `;
+    }).join("");
   })
   .catch(err => {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
   });
 }
 
@@ -2296,4 +2311,42 @@ function initExpirationDates() {
     ).join("");
   }
 }
+
+window.handleClosePosition = function(ticker, type, strike, qty, expiry_yymmdd) {
+  if (!confirm(`Are you sure you want to close your ${ticker} ${type} position?`)) {
+    return;
+  }
+  
+  const payload = {
+    username: currentUser,
+    profile: state.activeProfile,
+    ticker: ticker,
+    type: type,
+    strike: strike,
+    qty: parseInt(qty) || 1,
+    expiry_yymmdd: expiry_yymmdd
+  };
+  
+  fetch('/api/positions/close', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  })
+  .then(res => {
+    if (!res.ok) {
+      return res.json().then(data => { throw new Error(data.detail || 'Failed to close position.'); });
+    }
+    return res.json();
+  })
+  .then(data => {
+    alert(data.message || 'Position closing order submitted successfully.');
+    renderDashboard();
+    renderPositions();
+  })
+  .catch(err => {
+    alert(`Error: ${err.message}`);
+  });
+};
 

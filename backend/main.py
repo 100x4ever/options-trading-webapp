@@ -83,6 +83,10 @@ def hash_password(password: str) -> str:
 
 # Date parser to YYMMDD OSI format
 def format_date_to_yymmdd(expiry_str: str) -> str:
+    expiry_str = expiry_str.strip()
+    if len(expiry_str) == 6 and expiry_str.isdigit():
+        return expiry_str
+        
     months = {
         "jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06",
         "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12",
@@ -384,6 +388,7 @@ def get_alpaca_positions(username: str, profile: str):
                                     "type": "Iron Condor",
                                     "strike": strike_str,
                                     "exp": exp_clean,
+                                    "expiry_yymmdd": expiry_yymmdd,
                                     "qty": q,
                                     "avg": "-",
                                     "mark": "-",
@@ -438,6 +443,7 @@ def get_alpaca_positions(username: str, profile: str):
                             "type": strat_name,
                             "strike": strike_str,
                             "exp": exp_clean,
+                            "expiry_yymmdd": expiry_yymmdd,
                             "qty": q,
                             "avg": "-",
                             "mark": "-",
@@ -470,6 +476,7 @@ def get_alpaca_positions(username: str, profile: str):
                         "type": "Call" if leg["type"] == "CALL" else "Put",
                         "strike": f"{strike_val:.2f}",
                         "exp": exp_clean,
+                        "expiry_yymmdd": expiry_yymmdd,
                         "qty": int(pos.qty),
                         "avg": f"{leg['avg_entry_price']:.2f}",
                         "mark": f"{leg['current_price']:.2f}",
@@ -806,6 +813,156 @@ def execute_trade(trade: TradeModel, username: str):
         raise HTTPException(
             status_code=400, 
             detail=f"Alpaca API connection failed: {str(err)}"
+        )
+
+# Model for closing positions
+class ClosePositionModel(BaseModel):
+    username: str
+    profile: str
+    ticker: str
+    type: str
+    strike: str
+    qty: int
+    expiry_yymmdd: str
+
+@app.post("/api/positions/close")
+def close_position(trade: ClosePositionModel):
+    if trade.username.lower().strip() == "gang":
+        raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
+    db = read_db()
+    user_state = db.get("users", {}).get(trade.username.lower(), {}).get("state", {})
+    profile_data = user_state.get("profiles", {}).get(trade.profile)
+    
+    if not profile_data:
+        raise HTTPException(status_code=404, detail="Active profile configuration not found")
+
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
+    is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
+
+    if not api_key or not secret_key:
+        raise HTTPException(
+            status_code=400, 
+            detail="Alpaca credentials are empty."
+        )
+
+    try:
+        trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+        
+        # Parse legs from strike string
+        order_legs = []
+        legs_matched = re.findall(r'(Sell|Buy)\s+(\d+(?:\.\d+)?)\s*([CP])', trade.strike, re.IGNORECASE)
+        
+        if legs_matched:
+            # Multi-leg option
+            for action, strike_str, type_char in legs_matched:
+                order_legs.append({
+                    "original_side": OrderSide.SELL if action.lower() == "sell" else OrderSide.BUY,
+                    "closing_side": OrderSide.BUY if action.lower() == "sell" else OrderSide.SELL,
+                    "strike": float(strike_str),
+                    "type": "CALL" if type_char.upper() == "C" else "PUT"
+                })
+        else:
+            # Single-leg option
+            try:
+                strike_clean = trade.strike.replace('$', '').strip()
+                strike_val = float(re.search(r'(\d+(?:\.\d+)?)', strike_clean).group(1))
+                opt_type = "CALL" if "call" in trade.type.lower() else "PUT"
+                osi_symbol = format_osi_symbol(trade.ticker, trade.expiry_yymmdd, opt_type, strike_val)
+                
+                # Check current position side
+                alpaca_positions = trading_client.get_all_positions()
+                pos_qty = 0
+                for pos in alpaca_positions:
+                    if pos.symbol == osi_symbol:
+                        pos_qty = float(pos.qty)
+                        break
+                
+                if pos_qty == 0:
+                    raise HTTPException(status_code=400, detail=f"No active position found for contract {osi_symbol}")
+                
+                closing_side = OrderSide.SELL if pos_qty > 0 else OrderSide.BUY
+                qty_to_close = abs(int(pos_qty))
+                
+                # For single-leg options, submit market order
+                order_request = MarketOrderRequest(
+                    symbol=osi_symbol,
+                    qty=qty_to_close,
+                    side=closing_side,
+                    time_in_force=TimeInForce.DAY
+                )
+                order = trading_client.submit_order(order_request)
+                
+                # Remove from db registry active_trades
+                if "active_trades" in profile_data:
+                    profile_data["active_trades"] = [
+                        t for t in profile_data["active_trades"]
+                        if not (t["ticker"] == trade.ticker.upper() and any(l["symbol"] == osi_symbol for l in t.get("legs", [])))
+                    ]
+                    db["users"][trade.username.lower()]["state"] = user_state
+                    write_db(db)
+
+                return {
+                    "status": "closed",
+                    "order_id": str(order.id),
+                    "message": "Successfully submitted single-leg market order to close position."
+                }
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Could not close single-leg option: {str(e)}")
+
+        # For multi-leg spreads, calculate limit price from current positions
+        alpaca_positions = trading_client.get_all_positions()
+        pos_map = {pos.symbol: pos for pos in alpaca_positions}
+        
+        net_value = 0.0
+        closing_legs = []
+        for leg in order_legs:
+            osi_symbol = format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"])
+            closing_legs.append(
+                OptionLegRequest(
+                    symbol=osi_symbol,
+                    side=leg["closing_side"],
+                    ratio_qty=1
+                )
+            )
+            if osi_symbol in pos_map:
+                mark = float(pos_map[osi_symbol].current_price)
+                if leg["original_side"] == OrderSide.BUY:
+                    net_value += mark
+                else:
+                    net_value -= mark
+
+        limit_price = max(0.05, round(abs(net_value), 2))
+        
+        order_request = LimitOrderRequest(
+            qty=trade.qty,
+            limit_price=limit_price,
+            order_class=OrderClass.MLEG,
+            time_in_force=TimeInForce.DAY,
+            legs=closing_legs
+        )
+        order = trading_client.submit_order(order_request)
+        
+        # Remove from db registry
+        if "active_trades" in profile_data:
+            symbols_to_close = {format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"]) for leg in order_legs}
+            profile_data["active_trades"] = [
+                t for t in profile_data["active_trades"]
+                if not (t["ticker"] == trade.ticker.upper() and any(l["symbol"] in symbols_to_close for l in t.get("legs", [])))
+            ]
+            db["users"][trade.username.lower()]["state"] = user_state
+            write_db(db)
+
+        return {
+            "status": "closed",
+            "order_id": str(order.id),
+            "message": f"Successfully submitted multi-leg limit order (${limit_price:.2f}) to close position."
+        }
+
+    except Exception as err:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Alpaca API close execution failed: {str(err)}"
         )
 
 # Hull Moving Average and indicator math helpers
