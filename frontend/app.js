@@ -2029,6 +2029,24 @@ function debounce(func, wait) {
   };
 }
 
+function updateMainChartLabels(chart, index) {
+  if (!chart.sourceData) return;
+  const idx = index >= 0 ? index : chart.sourceData.slicedHma.length - 1;
+  const hmaVal = chart.sourceData.slicedHma[idx];
+  const supertrendVal = chart.sourceData.slicedSupertrend[idx];
+  chart.data.datasets[2].label = `30 HMA: ${hmaVal !== null && hmaVal !== undefined ? '$' + parseFloat(hmaVal).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[3].label = `Supertrend: ${supertrendVal !== null && supertrendVal !== undefined ? '$' + parseFloat(supertrendVal).toFixed(2) : 'N/A'}`;
+}
+
+function updateStochChartLabels(chart, index) {
+  if (!chart.sourceData) return;
+  const idx = index >= 0 ? index : chart.sourceData.slicedStoch14.length - 1;
+  const stoch14Val = chart.sourceData.slicedStoch14[idx];
+  const stoch40Val = chart.sourceData.slicedStoch40[idx];
+  chart.data.datasets[0].label = `Stoch (14, 4 %D): ${stoch14Val !== null && stoch14Val !== undefined ? parseFloat(stoch14Val).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[1].label = `Stoch (40, 4 %D): ${stoch40Val !== null && stoch40Val !== undefined ? parseFloat(stoch40Val).toFixed(2) : 'N/A'}`;
+}
+
 function renderTechnicalChart(ticker, tab) {
   const isWiz = tab === "wizard";
   const isDash = tab === "dashboard";
@@ -2106,6 +2124,8 @@ function renderTechnicalChart(ticker, tab) {
       currentMainChart.data.datasets[1].borderColor = colors;
       currentMainChart.data.datasets[2].data = slicedHma;
       currentMainChart.data.datasets[3].data = slicedSupertrend;
+      currentMainChart.sourceData = { slicedHma, slicedSupertrend };
+      updateMainChartLabels(currentMainChart, currentMainChart.lastHoveredIndex !== undefined ? currentMainChart.lastHoveredIndex : -1);
       currentMainChart.options.scales.y.min = yMin;
       currentMainChart.options.scales.y.max = yMax;
       currentMainChart.update("none");
@@ -2166,6 +2186,14 @@ function renderTechnicalChart(ticker, tab) {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
+          onHover: (event, activeElements, chart) => {
+            const activeIndex = activeElements && activeElements.length > 0 ? activeElements[0].index : -1;
+            if (!chart) return;
+            if (chart.lastHoveredIndex === activeIndex) return;
+            chart.lastHoveredIndex = activeIndex;
+            updateMainChartLabels(chart, activeIndex);
+            chart.update("none");
+          },
           plugins: {
             legend: {
               labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
@@ -2193,6 +2221,10 @@ function renderTechnicalChart(ticker, tab) {
         }
       });
       
+      newMainChart.sourceData = { slicedHma, slicedSupertrend };
+      updateMainChartLabels(newMainChart, -1);
+      newMainChart.update("none");
+
       if (isWiz) wizTechChart = newMainChart;
       else if (isDash) dashTechChart = newMainChart;
       else posTechChart = newMainChart;
@@ -2205,6 +2237,8 @@ function renderTechnicalChart(ticker, tab) {
       currentStochChart.data.labels = labels;
       currentStochChart.data.datasets[0].data = slicedStoch14;
       currentStochChart.data.datasets[1].data = slicedStoch40;
+      currentStochChart.sourceData = { slicedStoch14, slicedStoch40 };
+      updateStochChartLabels(currentStochChart, currentStochChart.lastHoveredIndex !== undefined ? currentStochChart.lastHoveredIndex : -1);
       currentStochChart.update("none");
     } else {
       const newStochChart = new Chart(ctxStoch, {
@@ -2234,6 +2268,14 @@ function renderTechnicalChart(ticker, tab) {
           responsive: true,
           maintainAspectRatio: false,
           animation: false,
+          onHover: (event, activeElements, chart) => {
+            const activeIndex = activeElements && activeElements.length > 0 ? activeElements[0].index : -1;
+            if (!chart) return;
+            if (chart.lastHoveredIndex === activeIndex) return;
+            chart.lastHoveredIndex = activeIndex;
+            updateStochChartLabels(chart, activeIndex);
+            chart.update("none");
+          },
           plugins: {
             legend: {
               labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
@@ -2260,6 +2302,10 @@ function renderTechnicalChart(ticker, tab) {
         }
       });
       
+      newStochChart.sourceData = { slicedStoch14, slicedStoch40 };
+      updateStochChartLabels(newStochChart, -1);
+      newStochChart.update("none");
+
       if (isWiz) wizStochChart = newStochChart;
       else if (isDash) dashStochChart = newStochChart;
       else posStochChart = newStochChart;
