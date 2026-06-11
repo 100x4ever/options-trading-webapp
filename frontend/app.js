@@ -2432,14 +2432,20 @@ window.toggleTablePosition = function(posKey) {
 };
 
 function renderTugOfWarMeter(pos) {
-  if (pos.entry_price === undefined || pos.current_value === undefined) {
+  console.log("Position data for meter:", pos);
+  
+  // Robust fallback logic in case keys are missing or formatted differently
+  const entry = pos.entry_price !== undefined ? parseFloat(pos.entry_price) : parseFloat(pos.avg);
+  const current = pos.current_value !== undefined ? parseFloat(pos.current_value) : parseFloat(pos.mark);
+  
+  if (isNaN(entry) || isNaN(current)) {
+    console.log("Meter skipped due to NaN: entry =", entry, ", current =", current);
     return '';
   }
   
-  const entry = parseFloat(pos.entry_price);
-  const current = parseFloat(pos.current_value);
-  const target = parseFloat(pos.profit_target);
-  const stop = parseFloat(pos.stop_loss);
+  const isCredit = pos.is_credit !== undefined ? pos.is_credit : (pos.type.toLowerCase().includes("credit") || pos.type.toLowerCase().includes("condor") || pos.qty < 0);
+  const target = pos.profit_target !== undefined ? parseFloat(pos.profit_target) : (isCredit ? entry * 0.50 : entry * 1.50);
+  const stop = pos.stop_loss !== undefined ? parseFloat(pos.stop_loss) : (isCredit ? entry * 2.00 : entry * 0.50);
   
   let percent = 0;
   let entryPercent = 0;
@@ -2449,7 +2455,7 @@ function renderTugOfWarMeter(pos) {
   let rightColorClass = '';
   let currentValueLabel = '';
   
-  if (pos.is_credit) {
+  if (isCredit) {
     const range = stop - target;
     percent = Math.min(100, Math.max(0, ((current - target) / (range || 1)) * 100));
     entryPercent = ((entry - target) / (range || 1)) * 100;
@@ -2472,7 +2478,7 @@ function renderTugOfWarMeter(pos) {
   }
 
   let distanceText = '';
-  if (pos.is_credit) {
+  if (isCredit) {
     if (current <= target) {
       distanceText = 'Take Profit condition met!';
     } else if (current >= stop) {
