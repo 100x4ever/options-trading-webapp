@@ -1186,11 +1186,38 @@ def get_chart_technical(ticker: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error generating technical indicators: {str(e)}")
 
+# Timezone-aware core trading hours check helper
+def is_market_hours_for_autoclose() -> bool:
+    import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        tz_est = ZoneInfo("America/New_York")
+        now_est = datetime.datetime.now(tz_est)
+    except Exception:
+        # Fallback assuming UTC timezone subtraction for EDT (UTC-4)
+        now_est = datetime.datetime.utcnow() - datetime.timedelta(hours=4)
+        
+    # Weekday check
+    if now_est.weekday() >= 5:
+        return False
+        
+    # Allow execution between 9:50 AM and 3:50 PM EST
+    current_time = now_est.time()
+    start_time = datetime.time(9, 50)
+    end_time = datetime.time(15, 50)
+    
+    return start_time <= current_time <= end_time
+
 # Background daemon to monitor open options positions and auto-close on threshold breach
 def monitor_positions_loop():
     print("Starting AuraTrade Options Position Monitor Daemon...")
     while True:
         try:
+            # Skip checking/closing entirely if not within restricted core trading hours
+            if not is_market_hours_for_autoclose():
+                time.sleep(60)
+                continue
+
             db = read_db()
             users = db.get("users", {})
             db_changed = False
@@ -1223,6 +1250,25 @@ def monitor_positions_loop():
                     profile_changed = False
                     
                     for trade in active_trades:
+                        order_id = trade.get("order_id")
+                        if order_id:
+                            try:
+                                order_info = trading_client.get_order_by_id(order_id)
+                                status_str = str(order_info.status.value).lower() if hasattr(order_info.status, 'value') else str(order_info.status).lower()
+                                
+                                # Keep in registry and skip evaluating if order is still pending
+                                if status_str in ["new", "accepted", "pending_new", "accepted_for_bidding", "partially_filled"]:
+                                    trades_to_keep.append(trade)
+                                    continue
+                                # Cancelled/rejected/expired orders are cleared
+                                elif status_str in ["rejected", "expired", "cancelled"]:
+                                    profile_changed = True
+                                    db_changed = True
+                                    continue
+                            except Exception as order_err:
+                                print(f"[{username}/{profile_name}] Order status lookup failed for {order_id}, falling back to positions: {order_err}")
+                                pass
+
                         legs = trade.get("legs", [])
                         legs_present = []
                         missing_leg = False
@@ -1301,10 +1347,11 @@ def monitor_positions_loop():
                                         )
                                     )
                                 
+                                # Use execution price buffer (+/- $0.10) to ensure immediate fill
                                 if is_credit:
-                                    close_price_limit = round(current_cost + 0.05, 2)
+                                    close_price_limit = round(current_cost + 0.10, 2)
                                 else:
-                                    close_price_limit = max(0.05, round(current_value - 0.05, 2))
+                                    close_price_limit = max(0.05, round(current_value - 0.10, 2))
                                     
                                 if len(closing_legs) > 1:
                                     order_request = LimitOrderRequest(
