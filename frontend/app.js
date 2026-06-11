@@ -660,6 +660,7 @@ function renderDashboard() {
               <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
             </div>
           </div>
+          ${renderTugOfWarMeter(pos)}
         ` : '';
 
         return `
@@ -723,23 +724,26 @@ function renderPositions() {
       
       const detailRowHtml = isExpanded ? `
         <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
-          <td colspan="11" style="padding: 12px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <div style="display: flex; gap: 40px; align-items: center;">
-              <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
-              <div style="display: flex; gap: 24px;">
-                <div style="font-size: 13px;">
-                  <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
-                  <strong>${pos.delta}</strong>
-                </div>
-                <div style="font-size: 13px;">
-                  <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
-                  <strong>${pos.gamma}</strong>
-                </div>
-                <div style="font-size: 13px;">
-                  <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
-                  <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+          <td colspan="11" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
+              <div style="display: flex; gap: 40px; align-items: center;">
+                <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
+                <div style="display: flex; gap: 24px;">
+                  <div style="font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
+                    <strong>${pos.delta}</strong>
+                  </div>
+                  <div style="font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
+                    <strong>${pos.gamma}</strong>
+                  </div>
+                  <div style="font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
+                    <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+                  </div>
                 </div>
               </div>
+              ${renderTugOfWarMeter(pos)}
             </div>
           </td>
         </tr>
@@ -2426,4 +2430,97 @@ window.toggleTablePosition = function(posKey) {
   }
   renderPositions();
 };
+
+function renderTugOfWarMeter(pos) {
+  if (pos.entry_price === undefined || pos.current_value === undefined) {
+    return '';
+  }
+  
+  const entry = parseFloat(pos.entry_price);
+  const current = parseFloat(pos.current_value);
+  const target = parseFloat(pos.profit_target);
+  const stop = parseFloat(pos.stop_loss);
+  
+  let percent = 0;
+  let entryPercent = 0;
+  let leftLabel = '';
+  let rightLabel = '';
+  let leftColorClass = '';
+  let rightColorClass = '';
+  let currentValueLabel = '';
+  
+  if (pos.is_credit) {
+    const range = stop - target;
+    percent = Math.min(100, Math.max(0, ((current - target) / (range || 1)) * 100));
+    entryPercent = ((entry - target) / (range || 1)) * 100;
+    
+    leftLabel = `Take Profit: $${target.toFixed(2)}`;
+    rightLabel = `Stop Loss: $${stop.toFixed(2)}`;
+    leftColorClass = 'profit-zone';
+    rightColorClass = 'loss-zone';
+    currentValueLabel = `Current Cost: $${current.toFixed(2)}`;
+  } else {
+    const range = target - stop;
+    percent = Math.min(100, Math.max(0, ((current - stop) / (range || 1)) * 100));
+    entryPercent = ((entry - stop) / (range || 1)) * 100;
+    
+    leftLabel = `Stop Loss: $${stop.toFixed(2)}`;
+    rightLabel = `Take Profit: $${target.toFixed(2)}`;
+    leftColorClass = 'loss-zone';
+    rightColorClass = 'profit-zone';
+    currentValueLabel = `Current Value: $${current.toFixed(2)}`;
+  }
+
+  let distanceText = '';
+  if (pos.is_credit) {
+    if (current <= target) {
+      distanceText = 'Take Profit condition met!';
+    } else if (current >= stop) {
+      distanceText = 'Stop Loss condition met!';
+    } else {
+      const distanceToSL = stop - current;
+      const distanceToTP = current - target;
+      distanceText = distanceToTP < distanceToSL 
+        ? `$${distanceToTP.toFixed(2)} to Take Profit` 
+        : `$${distanceToSL.toFixed(2)} to Stop Loss`;
+    }
+  } else {
+    if (current >= target) {
+      distanceText = 'Take Profit condition met!';
+    } else if (current <= stop) {
+      distanceText = 'Stop Loss condition met!';
+    } else {
+      const distanceToSL = current - stop;
+      const distanceToTP = target - current;
+      distanceText = distanceToTP < distanceToSL 
+        ? `$${distanceToTP.toFixed(2)} to Take Profit` 
+        : `$${distanceToSL.toFixed(2)} to Stop Loss`;
+    }
+  }
+  
+  return `
+    <div class="tug-of-war-container" style="margin-top: 16px; width: 100%;">
+      <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; color: var(--text-muted);">
+        <span>${leftLabel}</span>
+        <span style="font-weight: 700; color: var(--text-primary);">${currentValueLabel}</span>
+        <span>${rightLabel}</span>
+      </div>
+      
+      <div class="tug-of-war-track-wrapper" style="position: relative; height: 12px; border-radius: 6px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); overflow: visible; margin: 16px 0;">
+        <div style="position: absolute; left: 0; width: ${entryPercent}%; height: 100%; border-radius: 5px 0 0 5px;" class="${leftColorClass}"></div>
+        <div style="position: absolute; left: ${entryPercent}%; right: 0; height: 100%; border-radius: 0 5px 5px 0;" class="${rightColorClass}"></div>
+        
+        <div class="meter-entry-pin" style="position: absolute; left: ${entryPercent}%; top: -6px; width: 2px; height: 22px; background: #ffffff; box-shadow: 0 0 8px #ffffff; z-index: 2;">
+          <span style="position: absolute; top: -14px; left: -18px; font-size: 8px; font-weight: 800; color: #ffffff; text-transform: uppercase;">Entry ($${entry.toFixed(2)})</span>
+        </div>
+        
+        <div class="meter-current-pointer" style="position: absolute; left: ${percent}%; top: -3px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent-neutral); border: 2px solid #ffffff; box-shadow: 0 0 10px var(--accent-neutral); z-index: 3; transform: translateX(-8px); transition: left 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);"></div>
+      </div>
+      
+      <div style="text-align: center; font-size: 10px; color: var(--accent-neutral); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">
+        ${distanceText}
+      </div>
+    </div>
+  `;
+}
 

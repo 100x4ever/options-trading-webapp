@@ -379,6 +379,25 @@ def get_alpaca_positions(username: str, profile: str):
             
         formatted_positions = []
         matched_symbols = set()
+        active_trades = profile_data.get("active_trades", [])
+
+        # Helper to match positions with locally registered active trades
+        def find_active_trade(ticker, expiry_yymmdd, strategy_type, strike_val=None):
+            for t in active_trades:
+                if t["ticker"] == ticker.upper():
+                    if format_date_to_yymmdd(t["expiry"]) == expiry_yymmdd:
+                        if strike_val is not None:
+                            try:
+                                strike_str_clean = t["strike_str"].replace("$", "").strip()
+                                if f"{strike_val:.2f}" in strike_str_clean:
+                                    return t
+                            except Exception:
+                                pass
+                        else:
+                            # Loose match on strategy name
+                            if t["strategy"].lower() == strategy_type.lower() or strategy_type.lower() in t["strategy"].lower():
+                                return t
+            return None
         
         for (ticker, expiry_yymmdd), legs in groups.items():
             legs.sort(key=lambda x: x["strike"])
@@ -420,6 +439,16 @@ def get_alpaca_positions(username: str, profile: str):
                                 total_gamma = sum(l["gamma"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs) * q
                                 total_theta = sum(l["theta"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs) * q
 
+                                # Calculate net value (mark price of the spread)
+                                net_val = sum(l["current_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs)
+
+                                matching_trade = find_active_trade(ticker, expiry_yymmdd, "Iron Condor")
+                                entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
+                                is_cr = True
+                                current_c = -net_val
+                                profit_t = entry_p * 0.50
+                                stop_l = entry_p * 2.00
+
                                 formatted_positions.append({
                                     "ticker": ticker,
                                     "type": "Iron Condor",
@@ -427,13 +456,18 @@ def get_alpaca_positions(username: str, profile: str):
                                     "exp": exp_clean,
                                     "expiry_yymmdd": expiry_yymmdd,
                                     "qty": q,
-                                    "avg": "-",
-                                    "mark": "-",
+                                    "avg": f"{entry_p:.2f}" if matching_trade else "-",
+                                    "mark": f"{abs(net_val):.2f}",
                                     "delta": f"{total_delta:+.2f}",
                                     "gamma": f"{total_gamma:+.4f}",
                                     "theta": f"{total_theta:+.2f}",
                                     "pnl": pnl_str,
-                                    "status": "positive" if total_pnl >= 0 else "negative"
+                                    "status": "positive" if total_pnl >= 0 else "negative",
+                                    "entry_price": entry_p,
+                                    "current_value": current_c,
+                                    "is_credit": is_cr,
+                                    "profit_target": profit_t,
+                                    "stop_loss": stop_l
                                 })
                                 
                                 for idx in comb:
@@ -480,6 +514,24 @@ def get_alpaca_positions(username: str, profile: str):
                         total_gamma = sum(l["gamma"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2]) * q
                         total_theta = sum(l["theta"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2]) * q
 
+                        # Calculate net value (mark price of the spread)
+                        net_val = sum(l["current_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2])
+
+                        matching_trade = find_active_trade(ticker, expiry_yymmdd, strat_name)
+                        entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
+                        is_cr = "credit" in strat_name.lower() or "condor" in strat_name.lower()
+                        
+                        if is_cr:
+                            current_c = -net_val
+                            profit_t = entry_p * 0.50
+                            stop_l = entry_p * 2.00
+                            cur_val_to_send = -net_val
+                        else:
+                            current_c = net_val
+                            profit_t = entry_p * 1.50
+                            stop_l = entry_p * 0.50
+                            cur_val_to_send = net_val
+
                         formatted_positions.append({
                             "ticker": ticker,
                             "type": strat_name,
@@ -487,13 +539,18 @@ def get_alpaca_positions(username: str, profile: str):
                             "exp": exp_clean,
                             "expiry_yymmdd": expiry_yymmdd,
                             "qty": q,
-                            "avg": "-",
-                            "mark": "-",
+                            "avg": f"{entry_p:.2f}" if matching_trade else "-",
+                            "mark": f"{abs(net_val):.2f}",
                             "delta": f"{total_delta:+.2f}",
                             "gamma": f"{total_gamma:+.4f}",
                             "theta": f"{total_theta:+.2f}",
                             "pnl": pnl_str,
-                            "status": "positive" if total_pnl >= 0 else "negative"
+                            "status": "positive" if total_pnl >= 0 else "negative",
+                            "entry_price": entry_p,
+                            "current_value": cur_val_to_send,
+                            "is_credit": is_cr,
+                            "profit_target": profit_t,
+                            "stop_loss": stop_l
                         })
                         
                         used_indices.add(i)
@@ -519,6 +576,20 @@ def get_alpaca_positions(username: str, profile: str):
                     total_gamma = leg["gamma"] * leg_qty
                     total_theta = leg["theta"] * leg_qty
 
+                    matching_trade = find_active_trade(ticker, expiry_yymmdd, "Call" if leg["type"] == "CALL" else "Put", strike_val)
+                    entry_p = float(matching_trade["entry_price"]) if matching_trade else float(leg['avg_entry_price'])
+                    is_cr = leg_qty < 0
+                    net_val = float(leg['current_price'])
+                    
+                    if is_cr:
+                        profit_t = entry_p * 0.50
+                        stop_l = entry_p * 2.00
+                        cur_val_to_send = net_val
+                    else:
+                        profit_t = entry_p * 1.50
+                        stop_l = entry_p * 0.50
+                        cur_val_to_send = net_val
+
                     formatted_positions.append({
                         "ticker": ticker,
                         "type": "Call" if leg["type"] == "CALL" else "Put",
@@ -526,13 +597,18 @@ def get_alpaca_positions(username: str, profile: str):
                         "exp": exp_clean,
                         "expiry_yymmdd": expiry_yymmdd,
                         "qty": leg_qty,
-                        "avg": f"{leg['avg_entry_price']:.2f}",
-                        "mark": f"{leg['current_price']:.2f}",
+                        "avg": f"{entry_p:.2f}",
+                        "mark": f"{net_val:.2f}",
                         "delta": f"{total_delta:+.2f}",
                         "gamma": f"{total_gamma:+.4f}",
                         "theta": f"{total_theta:+.2f}",
                         "pnl": pnl_str,
-                        "status": "positive" if pnl_val >= 0 else "negative"
+                        "status": "positive" if pnl_val >= 0 else "negative",
+                        "entry_price": entry_p,
+                        "current_value": cur_val_to_send,
+                        "is_credit": is_cr,
+                        "profit_target": profit_t,
+                        "stop_loss": stop_l
                     })
                     
         for pos in other_positions:
