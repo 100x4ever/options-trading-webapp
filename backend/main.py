@@ -984,7 +984,14 @@ def close_position(trade: ClosePositionModel):
                 else:
                     net_value -= mark
 
-        limit_price = max(0.05, round(abs(net_value), 2))
+        # Check if spread is credit or debit to determine favorable buffer
+        is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower()
+        if is_credit:
+            # Short position: we pay debit to buy back, so increase limit price to cross bid-ask spread
+            limit_price = round(abs(net_value) + 0.10, 2)
+        else:
+            # Long position: we receive credit to sell, so decrease limit price to cross bid-ask spread
+            limit_price = max(0.05, round(abs(net_value) - 0.10, 2))
         
         order_request = LimitOrderRequest(
             qty=trade.qty,
