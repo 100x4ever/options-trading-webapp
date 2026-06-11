@@ -2500,7 +2500,7 @@ function renderTugOfWarMeter(pos) {
   
   return `
     <div class="tug-of-war-container" style="margin-top: 16px; width: 100%;">
-      <div style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; color: var(--text-muted);">
+      <div class="tug-of-war-labels" style="display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 6px; color: var(--text-muted);">
         <span>${leftLabel}</span>
         <span style="font-weight: 700; color: var(--text-primary);">${currentValueLabel}</span>
         <span>${rightLabel}</span>
@@ -2511,13 +2511,13 @@ function renderTugOfWarMeter(pos) {
         <div style="position: absolute; left: ${entryPercent}%; right: 0; height: 100%; border-radius: 0 5px 5px 0;" class="${rightColorClass}"></div>
         
         <div class="meter-entry-pin" style="position: absolute; left: ${entryPercent}%; top: -6px; width: 2px; height: 22px; background: #ffffff; box-shadow: 0 0 8px #ffffff; z-index: 2;">
-          <span style="position: absolute; top: -14px; left: -18px; font-size: 8px; font-weight: 800; color: #ffffff; text-transform: uppercase;">Entry ($${entry.toFixed(2)})</span>
+          <span class="tug-of-war-entry-label" style="position: absolute; top: -14px; left: -18px; font-size: 8px; font-weight: 800; color: #ffffff; text-transform: uppercase;">Entry ($${entry.toFixed(2)})</span>
         </div>
         
         <div class="meter-current-pointer" style="position: absolute; left: ${percent}%; top: -3px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent-neutral); border: 2px solid #ffffff; box-shadow: 0 0 10px var(--accent-neutral); z-index: 3; transform: translateX(-8px); transition: left 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);"></div>
       </div>
       
-      <div style="text-align: center; font-size: 10px; color: var(--accent-neutral); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">
+      <div class="tug-of-war-distance" style="text-align: center; font-size: 10px; color: var(--accent-neutral); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px;">
         ${distanceText}
       </div>
     </div>
