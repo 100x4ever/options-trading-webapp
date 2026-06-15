@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional, List
 # Alpaca Client imports
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest, MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
 
 app = FastAPI(title="AuraTrade Backend Server")
 
@@ -835,21 +835,26 @@ def execute_trade(trade: TradeModel, username: str):
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         
         try:
-            # Absolute value of limit price is required because debits are represented as negative values (e.g. -$1.50)
-            # but limit order prices must be positive floats.
-            price_val = abs(float(trade.price.replace('$', '').replace('+', '').strip()))
+            parsed_price = float(trade.price.replace('$', '').replace('+', '').strip())
+            is_credit_trade = "+" in trade.price or "credit" in trade.type.lower() or "condor" in trade.type.lower()
+            if is_credit_trade:
+                price_val = -abs(parsed_price)
+            else:
+                price_val = abs(parsed_price)
         except Exception:
-            price_val = 1.00 
+            price_val = -1.00 if ("credit" in trade.type.lower() or "condor" in trade.type.lower()) else 1.00 
             
         if len(order_legs) > 1:
             mleg_legs = []
             for leg in order_legs:
                 osi_symbol = format_osi_symbol(trade.ticker, expiry_yymmdd, leg["type"], leg["strike"])
+                intent = PositionIntent.BUY_TO_OPEN if leg["side"] == OrderSide.BUY else PositionIntent.SELL_TO_OPEN
                 mleg_legs.append(
                     OptionLegRequest(
                         symbol=osi_symbol,
                         side=leg["side"],
-                        ratio_qty=1
+                        ratio_qty=1,
+                        position_intent=intent
                     )
                 )
             
@@ -1046,11 +1051,13 @@ def close_position(trade: ClosePositionModel):
         closing_legs = []
         for leg in order_legs:
             osi_symbol = format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"])
+            intent = PositionIntent.BUY_TO_CLOSE if leg["closing_side"] == OrderSide.BUY else PositionIntent.SELL_TO_CLOSE
             closing_legs.append(
                 OptionLegRequest(
                     symbol=osi_symbol,
                     side=leg["closing_side"],
-                    ratio_qty=1
+                    ratio_qty=1,
+                    position_intent=intent
                 )
             )
             if osi_symbol in pos_map:
@@ -1066,8 +1073,8 @@ def close_position(trade: ClosePositionModel):
             # Short position: we pay debit to buy back, so increase limit price to cross bid-ask spread
             limit_price = round(abs(net_value) + 0.10, 2)
         else:
-            # Long position: we receive credit to sell, so decrease limit price to cross bid-ask spread
-            limit_price = max(0.05, round(abs(net_value) - 0.10, 2))
+            # Long position: we receive credit to sell, so decrease limit price to cross bid-ask spread (negative limit price in Alpaca)
+            limit_price = -max(0.05, round(abs(net_value) - 0.10, 2))
         
         order_request = LimitOrderRequest(
             qty=trade.qty,
