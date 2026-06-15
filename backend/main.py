@@ -1293,6 +1293,8 @@ def is_market_hours_for_autoclose() -> bool:
 
 # Background daemon to monitor open options positions and auto-close on threshold breach
 def monitor_positions_loop():
+    print("AuraTrade Options Position Monitor Daemon is currently paused.")
+    return
     print("Starting AuraTrade Options Position Monitor Daemon...")
     while True:
         try:
