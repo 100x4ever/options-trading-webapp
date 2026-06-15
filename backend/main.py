@@ -8,7 +8,7 @@ import math
 import threading
 import time
 from datetime import date
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -786,9 +786,99 @@ def get_options_chain(ticker: str, expiry: str, username: str, profile: str):
         "strikes": strikes_data
     }
 
+def update_trade_order_id(username: str, profile_name: str, ticker: str, strike_str: str, old_order_id: str, new_order_id: str, fill_price: float = None):
+    try:
+        db = read_db()
+        user_state = db.get("users", {}).get(username.lower(), {}).get("state", {})
+        profile_data = user_state.get("profiles", {}).get(profile_name)
+        if not profile_data:
+            return
+        active_trades = profile_data.get("active_trades", [])
+        for t in active_trades:
+            if t["ticker"] == ticker.upper() and t["strike_str"] == strike_str and t["order_id"] == old_order_id:
+                t["order_id"] = new_order_id
+                if fill_price is not None:
+                    t["entry_price"] = fill_price
+                break
+        db["users"][username.lower()]["state"] = user_state
+        write_db(db)
+        print(f"[Price-Walking] Updated trade registry: ticker={ticker}, old_id={old_order_id} -> new_id={new_order_id}")
+    except Exception as e:
+        print(f"[Price-Walking] Error updating trade registry: {e}")
+
+def remove_trade_by_order_id(username: str, profile_name: str, order_id: str):
+    try:
+        db = read_db()
+        user_state = db.get("users", {}).get(username.lower(), {}).get("state", {})
+        profile_data = user_state.get("profiles", {}).get(profile_name)
+        if not profile_data:
+            return
+        active_trades = profile_data.get("active_trades", [])
+        profile_data["active_trades"] = [t for t in active_trades if t["order_id"] != order_id]
+        db["users"][username.lower()]["state"] = user_state
+        write_db(db)
+        print(f"[Price-Walking] Removed cancelled/rejected trade registry entry for order_id={order_id}")
+    except Exception as e:
+        print(f"[Price-Walking] Error removing trade registry entry: {e}")
+
+def work_order_chase(username: str, profile_name: str, ticker: str, strike_str: str, steps: list, qty: int, api_key: str, secret_key: str, is_live: bool, order_request: LimitOrderRequest):
+    trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+    current_order_id = "working"
+    
+    for i, target_price in enumerate(steps):
+        # Update limit price for this step
+        order_request.limit_price = target_price
+        
+        # Submit the order
+        try:
+            order = trading_client.submit_order(order_request)
+            new_order_id = str(order.id)
+            print(f"[Price-Walking] Placed order step {i+1}/4: limit_price={target_price:.2f}, ID={new_order_id}")
+            
+            # Update database with the new order ID and tentative price
+            update_trade_order_id(username, profile_name, ticker, strike_str, current_order_id, new_order_id, fill_price=abs(target_price))
+            current_order_id = new_order_id
+        except Exception as e:
+            print(f"[Price-Walking] Failed to submit order at step {i+1}: {e}")
+            break
+            
+        # Wait 5 seconds
+        time.sleep(5)
+        
+        # Check status
+        try:
+            order_info = trading_client.get_order_by_id(current_order_id)
+            status_str = str(order_info.status.value).lower() if hasattr(order_info.status, 'value') else str(order_info.status).lower()
+            
+            if status_str == "filled":
+                print(f"[Price-Walking] Order {current_order_id} filled successfully at step {i+1}!")
+                return
+            elif status_str in ["rejected", "cancelled", "expired"]:
+                print(f"[Price-Walking] Order {current_order_id} was {status_str} at step {i+1}. Stopping chase.")
+                # Remove from db since it was cancelled/rejected
+                remove_trade_by_order_id(username, profile_name, current_order_id)
+                return
+        except Exception as e:
+            print(f"[Price-Walking] Error checking status: {e}")
+            
+        # If this is the last step, we do not cancel it; leave it working in the market
+        if i == len(steps) - 1:
+            print(f"[Price-Walking] Reached final step. Leaving order {current_order_id} active.")
+            break
+            
+        # Cancel the current order before placing the next step
+        try:
+            trading_client.cancel_order_by_id(current_order_id)
+            print(f"[Price-Walking] Cancelled order {current_order_id} to prepare next step.")
+            time.sleep(0.5) # small buffer to allow cancellation to register
+        except Exception as e:
+            print(f"[Price-Walking] Error cancelling order: {e}")
+            # If cancel fails (e.g. already filled), stop chasing
+            break
+
 # Trade Order routing via Alpaca Trading API Client
 @app.post("/api/trade")
-def execute_trade(trade: TradeModel, username: str):
+def execute_trade(trade: TradeModel, username: str, background_tasks: BackgroundTasks):
     if username.lower().strip() == "gang":
         raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
     db = read_db()
@@ -858,14 +948,33 @@ def execute_trade(trade: TradeModel, username: str):
                     )
                 )
             
+            mid_price = abs(price_val)
+            spread_offset = max(0.02, round(mid_price * 0.08, 2))
+            
+            # Walk price steps (4 steps, 5s wait)
+            # Debits: start low, walk up. Credits: start high, walk down.
+            if is_credit_trade:
+                steps = [
+                    round(-(mid_price + spread_offset), 2),
+                    round(-(mid_price + spread_offset / 2), 2),
+                    round(-mid_price, 2),
+                    round(-max(0.01, mid_price - spread_offset / 2), 2)
+                ]
+            else:
+                steps = [
+                    round(max(0.01, mid_price - spread_offset), 2),
+                    round(max(0.01, mid_price - spread_offset / 2), 2),
+                    round(mid_price, 2),
+                    round(mid_price + spread_offset / 2, 2)
+                ]
+            
             order_request = LimitOrderRequest(
                 qty=trade.qty,
-                limit_price=price_val,
+                limit_price=steps[0],
                 order_class=OrderClass.MLEG,
                 time_in_force=TimeInForce.DAY,
                 legs=mleg_legs
             )
-            order = trading_client.submit_order(order_request)
             
             username_lower = username.lower()
             if "active_trades" not in profile_data:
@@ -885,20 +994,35 @@ def execute_trade(trade: TradeModel, username: str):
                 "ticker": trade.ticker.upper(),
                 "strategy": trade.type,
                 "strike_str": trade.strike,
-                "entry_price": price_val,
+                "entry_price": abs(steps[0]),
                 "qty": trade.qty,
                 "expiry": trade.expiry,
                 "legs": registered_legs,
-                "order_id": str(order.id)  # FIXED: Explicitly string-cast UUID to avoid JSON errors
+                "order_id": "working"
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
 
+            # Spawn background price-walking order chase
+            background_tasks.add_task(
+                work_order_chase,
+                username=username,
+                profile_name=trade.profile,
+                ticker=trade.ticker,
+                strike_str=trade.strike,
+                steps=steps,
+                qty=trade.qty,
+                api_key=api_key,
+                secret_key=secret_key,
+                is_live=is_live,
+                order_request=order_request
+            )
+
             return {
-                "status": "filled",
-                "order_id": str(order.id),
+                "status": "working",
+                "order_id": "working",
                 "legs_count": len(mleg_legs),
-                "message": f"Successfully placed multi-leg order spread to Alpaca API.",
+                "message": f"Price-walking optimizer initiated. Walking limit price over 4 steps starting at {abs(steps[0]):.2f}.",
                 "is_sandbox": not is_live
             }
         else:
