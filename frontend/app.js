@@ -105,7 +105,6 @@ function hideAuthScreen() {
   
   // Render Dashboard graphs & lists
   renderDashboard();
-  renderPositions();
   renderOptionChain();
   renderBestBets();
 
@@ -1269,7 +1268,7 @@ function renderOptionChain() {
   });
 }
 
-window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk, forceExpiry = null, forceQty = null) {
+window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk, forceExpiry = null, forceQty = null, forceTp = null) {
   const expiry = forceExpiry || document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
   
   // FIXED: Dynamically bind the latest selection count value from the DOM input elements
@@ -1277,6 +1276,7 @@ window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk,
   
   const rawPrem = parseFloat(premium.replace(/[^\d.-]/g, '')) || 0.0;
   const rawRisk = parseFloat(risk.replace(/[^\d.-]/g, '')) || 0.0;
+  const tpVal = forceTp !== null ? parseFloat(forceTp) : 0.85;
   
   // FIXED: Updated template string to pass through the real parameter bounds
   showHoverPanel(
@@ -1290,14 +1290,14 @@ window.tradeSpreadFromChain = function(ticker, strategy, strikes, premium, risk,
         <strong>Est Net Premium:</strong> ${premium.startsWith('+') || premium.startsWith('-') ? premium[0] : ''}$${Math.abs(rawPrem * 100 * qty).toFixed(2)} ($${rawPrem.toFixed(2)} each)<br>
         <strong>Collateral/Max Risk:</strong> $${(rawRisk * qty).toFixed(2)}
       </div>
-      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}', ${qty})">
+      <button class="primary-btn" onclick="executeSpreadTrade('${ticker}', '${strategy}', '${strikes}', '${premium}', '${expiry}', ${qty}, ${tpVal})">
         Transmit Spread Order
       </button>
     `
   );
 }
 
-window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry, qty) {
+window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry, qty, tpVal = 0.85) {
   showHoverPanel("Order Sent", `Routing multi-leg spread order to Alpaca: Transmitting ${qty}x ${ticker} ${strategy}...`);
   
   fetch(`/api/trade?username=${encodeURIComponent(currentUser)}`, {
@@ -1310,7 +1310,8 @@ window.executeSpreadTrade = function(ticker, strategy, strikes, premium, expiry,
       strike: strikes,
       price: premium,
       qty: parseInt(qty) || 1, // FIXED: Force actual runtime value state
-      expiry: expiry
+      expiry: expiry,
+      tp_price: parseFloat(tpVal) || 0.85
     })
   })
   .then(async res => {
@@ -1358,14 +1359,14 @@ window.selectStrike = function(type, strike, price) {
         <strong>Quantity:</strong> ${qty} contract(s)<br>
         <strong>Est. Price:</strong> $${price} per contract ($${(parseFloat(price) * 100 * qty).toFixed(2)})
       </div>
-      <button class="primary-btn" onclick="executeTrade('${ticker}', '${type}', '${strike}', '${price}', ${qty})">
+      <button class="primary-btn" onclick="executeTrade('${ticker}', '${type}', '${strike}', '${price}', ${qty}, 0.85)">
         Send Market Order
       </button>
     `
   );
 }
 
-window.executeTrade = function(ticker, type, strike, price, qty) {
+window.executeTrade = function(ticker, type, strike, price, qty, tpVal = 0.85) {
   const expiry = document.getElementById("expirationSelect")?.value || "June 19, 2026 (14 Days)";
   showHoverPanel("Order Sent", `Routing order to Alpaca: Buy ${qty} contract(s) of ${ticker} $${strike} ${type} at $${price}...`);
   
@@ -1379,7 +1380,8 @@ window.executeTrade = function(ticker, type, strike, price, qty) {
       strike: strike,
       price: price,
       qty: parseInt(qty) || 1, // FIXED: Maps state bindings dynamically rather than default falling to 1
-      expiry: expiry
+      expiry: expiry,
+      tp_price: parseFloat(tpVal) || 0.85
     })
   })
   .then(async res => {
@@ -1543,6 +1545,9 @@ function initStrategyWizard() {
   if (executeWizTradeBtn) {
     executeWizTradeBtn.addEventListener("click", () => {
       if (window.wizCurrentTrade) {
+        const tpInput = document.getElementById("wizTakeProfit");
+        const tpVal = tpInput ? parseFloat(tpInput.value) : 0.85;
+        
         tradeSpreadFromChain(
           window.wizCurrentTrade.ticker,
           window.wizCurrentTrade.strategy,
@@ -1550,7 +1555,8 @@ function initStrategyWizard() {
           window.wizCurrentTrade.premium,
           window.wizCurrentTrade.risk,
           window.wizCurrentTrade.expiry,
-          window.wizCurrentTrade.qty
+          window.wizCurrentTrade.qty,
+          tpVal
         );
       } else {
         showHoverPanel("Trade Error", "No strategy calculations found. Please try again.");
@@ -2180,15 +2186,7 @@ function initTechnicalCharts() {
       setTimeout(() => renderTechnicalChart(ticker, "wizard"), 100);
     });
   }
-  
-  const positionsNavBtn = document.getElementById("nav-positions");
-  if (positionsNavBtn) {
-    positionsNavBtn.addEventListener("click", () => {
-      setTimeout(() => {
-        renderPositions();
-      }, 100);
-    });
-  }
+
 
   const fullChartNavBtn = document.getElementById("nav-chart");
   if (fullChartNavBtn) {
@@ -2205,7 +2203,6 @@ function initTechnicalCharts() {
       setTimeout(() => {
         renderTechnicalChart("QQQ", "dashboard");
         renderDashboard();
-        renderPositions();
       }, 100);
     });
   }
@@ -2230,13 +2227,6 @@ function initTechnicalCharts() {
       }
       renderTechnicalChart("QQQ", "dashboard");
       renderDashboard();
-      renderPositions();
-    } else if (activeTab === "positions") {
-      // Pause positions tab refresh if a position is currently expanded to prevent detail view collapsing/resetting
-      if (expandedPositions && expandedPositions.size > 0) {
-        return;
-      }
-      renderPositions();
     } else if (activeTab === "chart") {
       const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
       renderTechnicalChart(ticker, "chart");

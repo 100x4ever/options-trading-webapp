@@ -89,9 +89,6 @@
         <button class="nav-btn" data-tab="wizard" id="nav-wizard">
           <i data-lucide="compass"></i> Strategy Wizard
         </button>
-        <button class="nav-btn" data-tab="positions" id="nav-positions">
-          <i data-lucide="line-chart"></i> Positions
-        </button>
         <button class="nav-btn" data-tab="options" id="nav-options" style="display: none;">
           <i data-lucide="activity"></i> Option Chain
         </button>
@@ -237,6 +234,11 @@
             </div>
 
             <div class="setting-item">
+              <label for="wizTakeProfit">Take Profit ($)</label>
+              <input type="number" id="wizTakeProfit" value="0.85" step="0.05" min="0.01" max="100.00" style="width: 100%; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none;">
+            </div>
+
+            <div class="setting-item">
               <label for="wizSpreadWidth">Spread Width ($)</label>
               <input type="number" id="wizSpreadWidth" value="1.00" step="0.50" min="0.5" max="50" style="width: 100%; padding: 8px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary); outline: none; margin-bottom: 8px;">
               <div class="wiz-btn-group" id="wizSpreadBudgetsGroup" style="margin-top: 4px;">
@@ -297,57 +299,6 @@
             <canvas id="stochasticChartCanvas"></canvas>
           </div>
         </div>
-      </section>
-
-      <!-- TAB: POSITIONS -->
-      <section class="tab-content" id="tab-positions">
-        <header class="tab-header">
-          <h1>Current Positions</h1>
-          <p>Track your active options contracts, Greeks, and PnL metrics.</p>
-        </header>
-
-        <!-- Card 1: Active Positions -->
-        <div class="glass-card table-card" style="margin-bottom: 24px;">
-          <h3 style="margin-bottom: 16px; font-size: 15px; font-weight: 600; color: var(--text-main); font-family: var(--font-family-title);"><i data-lucide="briefcase" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle; width: 18px; height: 18px;"></i> Active Positions</h3>
-          <table class="positions-table">
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Strike / BE</th>
-                <th>Qty</th>
-                <th>Avg Price</th>
-                <th>Mark</th>
-                <th>Delta</th>
-                <th>Theta</th>
-                <th>PnL</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="positionsTableBody">
-              <!-- Populate dynamically -->
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Card 2: Open Orders -->
-        <div class="glass-card table-card">
-          <h3 style="margin-bottom: 16px; font-size: 15px; font-weight: 600; color: var(--text-main); font-family: var(--font-family-title);"><i data-lucide="clock" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle; width: 18px; height: 18px;"></i> Open Orders</h3>
-          <table class="positions-table">
-            <thead>
-              <tr>
-                <th>Order ID / Symbol</th>
-                <th>Type</th>
-                <th>Qty</th>
-                <th>Limit Price</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="openOrdersTableBody">
-              <!-- Populate dynamically -->
-            </tbody>
-          </table>
-        </div>
-
       </section>
 
       <!-- TAB: OPTION CHAIN -->

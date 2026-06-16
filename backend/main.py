@@ -61,6 +61,7 @@ class TradeModel(BaseModel):
     price: str
     qty: Optional[int] = 1
     expiry: Optional[str] = "June 19, 2026 (14 Days)"
+    tp_price: Optional[float] = 0.85
 
 # Helper to read database
 def read_db() -> Dict[str, Any]:
@@ -124,6 +125,55 @@ def format_osi_symbol(ticker: str, expiry_yymmdd: str, option_type: str, strike_
     strike_formatted = f"{dollars:05d}{cents:03d}"
     
     return f"{ticker_clean}{expiry_yymmdd}{type_char}{strike_formatted}"
+
+# Helper to automatically submit a Good-Til-Cancelled Take Profit limit order for a position
+def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_list: list, qty: int, strategy_name: str, is_credit: bool, tp_price: float):
+    try:
+        from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
+        
+        closing_legs = []
+        for leg in legs_list:
+            strike = leg["strike"]
+            type_char = leg["type"]
+            side = leg["side"]
+            
+            osi_symbol = format_osi_symbol(ticker, expiry_yymmdd, type_char, strike)
+            closing_side = OrderSide.BUY if side.lower() == "sell" else OrderSide.SELL
+            intent = PositionIntent.BUY_TO_CLOSE if closing_side == OrderSide.BUY else PositionIntent.SELL_TO_CLOSE
+            
+            closing_legs.append(
+                OptionLegRequest(
+                    symbol=osi_symbol,
+                    side=closing_side,
+                    ratio_qty=1,
+                    position_intent=intent
+                )
+            )
+            
+        if len(closing_legs) > 1:
+            limit_price = round(abs(tp_price), 2) if is_credit else -round(abs(tp_price), 2)
+            order_request = LimitOrderRequest(
+                qty=qty,
+                limit_price=limit_price,
+                order_class=OrderClass.MLEG,
+                time_in_force=TimeInForce.GTC,
+                legs=closing_legs
+            )
+        else:
+            limit_price = abs(tp_price)
+            order_request = LimitOrderRequest(
+                symbol=closing_legs[0].symbol,
+                qty=qty,
+                side=closing_legs[0].side,
+                time_in_force=TimeInForce.GTC,
+                limit_price=round(limit_price, 2)
+            )
+            
+        print(f"[Auto-TP] Submitting GTC TP order for {ticker} {strategy_name}: qty={qty}, limit_price={limit_price}")
+        trading_client.submit_order(order_request)
+    except Exception as e:
+        print(f"[Auto-TP] Failed to submit TP order for {ticker} {strategy_name}: {e}")
 
 # Auto-detect Live vs Paper Alpaca API keys based on prefix
 def check_is_live(api_key: Optional[str], default_live: bool = False) -> bool:
@@ -321,6 +371,22 @@ def get_alpaca_positions(username: str, profile: str):
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         positions = trading_client.get_all_positions()
         
+        # Auto-fetch open orders to prevent duplicate TP orders
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import OrderStatus
+        try:
+            open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=OrderStatus.OPEN))
+            symbols_with_orders = set()
+            for ord in open_orders:
+                if ord.legs:
+                    for leg in ord.legs:
+                        symbols_with_orders.add(leg.symbol)
+                elif ord.symbol:
+                    symbols_with_orders.add(ord.symbol)
+        except Exception as oe:
+            print(f"[Auto-TP] Error fetching open orders: {oe}")
+            symbols_with_orders = set()
+            
         underlying_prices = {}
         r = 0.045
         sigma = 0.22
@@ -474,6 +540,23 @@ def get_alpaca_positions(username: str, profile: str):
                                     ]
                                 })
                                 
+                                # Auto TP trigger
+                                leg_symbols = [l["symbol"] for l in comb_legs]
+                                if not any(sym in symbols_with_orders for sym in leg_symbols):
+                                    tp_price_val = 0.85
+                                    if matching_trade and "profit_target" in matching_trade:
+                                        tp_price_val = float(matching_trade["profit_target"])
+                                    auto_place_tp_order(
+                                        trading_client, 
+                                        ticker, 
+                                        expiry_yymmdd, 
+                                        [{"strike": l["strike"], "type": l["type"], "side": l["side"]} for l in comb_legs], 
+                                        q, 
+                                        "Iron Condor", 
+                                        is_cr, 
+                                        tp_price_val
+                                    )
+                                
                                 for idx in comb:
                                     used_indices.add(idx)
                                     matched_symbols.add(legs[idx]["symbol"])
@@ -573,6 +656,23 @@ def get_alpaca_positions(username: str, profile: str):
                             "breakevens": [{"price": round(be_val, 2), "direction": be_dir}]
                         })
                         
+                        # Auto TP trigger
+                        leg_symbols = [leg1["symbol"], leg2["symbol"]]
+                        if not any(sym in symbols_with_orders for sym in leg_symbols):
+                            tp_price_val = 0.85
+                            if matching_trade and "profit_target" in matching_trade:
+                                tp_price_val = float(matching_trade["profit_target"])
+                            auto_place_tp_order(
+                                trading_client, 
+                                ticker, 
+                                expiry_yymmdd, 
+                                [{"strike": l["strike"], "type": l["type"], "side": l["side"]} for l in [leg1, leg2]], 
+                                q, 
+                                strat_name, 
+                                is_cr, 
+                                tp_price_val
+                            )
+                        
                         used_indices.add(i)
                         used_indices.add(j)
                         matched_symbols.add(leg1["symbol"])
@@ -641,6 +741,22 @@ def get_alpaca_positions(username: str, profile: str):
                         "stop_loss": stop_l,
                         "breakevens": [{"price": round(be_val, 2), "direction": be_dir}]
                     })
+                    
+                    # Auto TP trigger
+                    if leg["symbol"] not in symbols_with_orders:
+                        tp_price_val = 0.85
+                        if matching_trade and "profit_target" in matching_trade:
+                            tp_price_val = float(matching_trade["profit_target"])
+                        auto_place_tp_order(
+                            trading_client, 
+                            ticker, 
+                            expiry_yymmdd, 
+                            [{"strike": leg["strike"], "type": leg["type"], "side": leg["side"]}], 
+                            abs(leg_qty), 
+                            "Call" if leg["type"] == "CALL" else "Put", 
+                            is_cr, 
+                            tp_price_val
+                        )
                     
         for pos in other_positions:
             pnl_val = float(pos.unrealized_pl)
@@ -1029,7 +1145,8 @@ def execute_trade(trade: TradeModel, username: str, background_tasks: Background
                 "qty": trade.qty,
                 "expiry": trade.expiry,
                 "legs": registered_legs,
-                "order_id": "working"
+                "order_id": "working",
+                "profit_target": trade.tp_price or 0.85
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
@@ -1084,7 +1201,8 @@ def execute_trade(trade: TradeModel, username: str, background_tasks: Background
                     "strike": leg["strike"],
                     "type": leg["type"]
                 }],
-                "order_id": str(order.id)  # FIXED: Explicitly string-cast UUID to avoid JSON errors
+                "order_id": str(order.id),
+                "profit_target": trade.tp_price or 0.85
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
