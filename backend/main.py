@@ -1114,7 +1114,7 @@ class ClosePositionModel(BaseModel):
     expiry_yymmdd: str
 
 @app.post("/api/positions/close")
-def close_position(trade: ClosePositionModel):
+def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks):
     if trade.username.lower().strip() == "gang":
         raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
     db = read_db()
@@ -1123,17 +1123,17 @@ def close_position(trade: ClosePositionModel):
     
     if not profile_data:
         raise HTTPException(status_code=404, detail="Active profile configuration not found")
-
+ 
     api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
     secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
     is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
-
+ 
     if not api_key or not secret_key:
         raise HTTPException(
             status_code=400, 
             detail="Alpaca credentials are empty."
         )
-
+ 
     try:
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
         
@@ -1189,7 +1189,7 @@ def close_position(trade: ClosePositionModel):
                     ]
                     db["users"][trade.username.lower()]["state"] = user_state
                     write_db(db)
-
+ 
                 return {
                     "status": "closed",
                     "order_id": str(order.id),
@@ -1197,7 +1197,7 @@ def close_position(trade: ClosePositionModel):
                 }
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Could not close single-leg option: {str(e)}")
-
+ 
         # For multi-leg spreads, calculate limit price from current positions
         alpaca_positions = trading_client.get_all_positions()
         pos_map = {pos.symbol: pos for pos in alpaca_positions}
@@ -1221,41 +1221,80 @@ def close_position(trade: ClosePositionModel):
                     net_value += mark
                 else:
                     net_value -= mark
-
+ 
         # Check if spread is credit or debit to determine favorable buffer
+        # is_credit indicates if the entry was credit.
         is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower()
-        if is_credit:
-            # Short position: we pay debit to buy back, so increase limit price to cross bid-ask spread
-            limit_price = round(abs(net_value) + 0.10, 2)
-        else:
-            # Long position: we receive credit to sell, so decrease limit price to cross bid-ask spread (negative limit price in Alpaca)
-            limit_price = -max(0.05, round(abs(net_value) - 0.10, 2))
+        mid_price = abs(net_value)
+        spread_offset = max(0.02, round(mid_price * 0.08, 2))
         
+        if is_credit:
+            # We had sold for credit (short position). To close, we BUY BACK (debit).
+            # Start cheap (low debit value) and walk the limit price UP (higher debit limit) to ensure fill.
+            steps = [
+                round(max(0.01, mid_price - spread_offset), 2),
+                round(max(0.01, mid_price - spread_offset / 2), 2),
+                round(mid_price, 2),
+                round(mid_price + spread_offset / 2, 2)
+            ]
+        else:
+            # We had bought for debit (long position). To close, we SELL (credit).
+            # Start demanding (high credit limit, represented as negative limit_price in Alpaca MLEG) 
+            # and walk the limit price DOWN (cheaper credit limit) to ensure fill.
+            steps = [
+                round(-(mid_price + spread_offset), 2),
+                round(-(mid_price + spread_offset / 2), 2),
+                round(-mid_price, 2),
+                round(-max(0.01, mid_price - spread_offset / 2), 2)
+            ]
+ 
         order_request = LimitOrderRequest(
             qty=trade.qty,
-            limit_price=limit_price,
+            limit_price=steps[0],
             order_class=OrderClass.MLEG,
             time_in_force=TimeInForce.DAY,
             legs=closing_legs
         )
-        order = trading_client.submit_order(order_request)
         
-        # Remove from db registry
-        if "active_trades" in profile_data:
-            symbols_to_close = {format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"]) for leg in order_legs}
-            profile_data["active_trades"] = [
-                t for t in profile_data["active_trades"]
-                if not (t["ticker"] == trade.ticker.upper() and any(l["symbol"] in symbols_to_close for l in t.get("legs", [])))
-            ]
-            db["users"][trade.username.lower()]["state"] = user_state
-            write_db(db)
-
+        # Put into database registry as "working"
+        username_lower = trade.username.lower()
+        if "active_trades" not in profile_data:
+            profile_data["active_trades"] = []
+            
+        profile_data["active_trades"].append({
+            "ticker": trade.ticker.upper(),
+            "strategy": trade.type,
+            "strike_str": trade.strike,
+            "entry_price": mid_price,
+            "qty": trade.qty,
+            "expiry": trade.expiry_yymmdd,
+            "legs": [{"symbol": format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"])} for leg in order_legs],
+            "order_id": "working"
+        })
+        db["users"][username_lower]["state"] = user_state
+        write_db(db)
+        
+        # Dispatch background price-walking order chase
+        background_tasks.add_task(
+            work_order_chase,
+            username=trade.username,
+            profile_name=trade.profile,
+            ticker=trade.ticker,
+            strike_str=trade.strike,
+            steps=steps,
+            qty=trade.qty,
+            api_key=api_key,
+            secret_key=secret_key,
+            is_live=is_live,
+            order_request=order_request
+        )
+ 
         return {
-            "status": "closed",
-            "order_id": str(order.id),
-            "message": f"Successfully submitted multi-leg limit order (${limit_price:.2f}) to close position."
+            "status": "working",
+            "order_id": "working",
+            "message": f"Successfully initiated closing price-walking optimizer. Walking limit price over 4 steps starting at {abs(steps[0]):.2f}."
         }
-
+ 
     except Exception as err:
         raise HTTPException(
             status_code=400, 
