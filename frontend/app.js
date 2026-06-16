@@ -696,73 +696,191 @@ function renderPositions() {
   const tbody = document.getElementById("positionsTableBody");
   if (!tbody) return;
 
-  fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
+  // Fetch open orders first to cross reference Take Profit status
+  fetch(`/api/positions/orders?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
-  .then(positions => {
-    window.activePositionsCache = positions;
-    if (positions.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
-      return;
-    }
-    
-    tbody.innerHTML = positions.map(pos => {
-      const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
-      const isExpanded = expandedPositions.has(posKey);
+  .then(openOrders => {
+    fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
+    .then(res => res.json())
+    .then(positions => {
+      window.activePositionsCache = positions;
+      if (positions.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
+        return;
+      }
       
-      const closeBtnHtml = pos.expiry_yymmdd ? `
-        <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
-      ` : '-';
-      
-      const mainRowHtml = `
-        <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
-          <td><strong>${pos.ticker}</strong></td>
-          <td>${pos.type}</td>
-          <td>${pos.strike !== "-" ? "$" + pos.strike : "-"}</td>
-          <td>${pos.exp}</td>
-          <td>${pos.qty}</td>
-          <td>$${pos.avg}</td>
-          <td>$${pos.mark}</td>
-          <td class="${parseFloat(pos.delta) >= 0 ? 'positive' : 'negative'}">${pos.delta}</td>
-          <td class="${parseFloat(pos.theta) >= 0 ? 'positive' : 'negative'}">${pos.theta}</td>
-          <td class="${pos.status}">${pos.pnl}</td>
-          <td>${closeBtnHtml}</td>
-        </tr>
-      `;
-      
-      const detailRowHtml = isExpanded ? `
-        <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
-          <td colspan="11" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
-              <div style="display: flex; gap: 40px; align-items: center;">
-                <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
-                <div style="display: flex; gap: 24px;">
-                  <div style="font-size: 13px;">
-                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
-                    <strong>${pos.delta}</strong>
+      tbody.innerHTML = positions.map(pos => {
+        const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
+        const isExpanded = expandedPositions.has(posKey);
+        
+        const closeBtnHtml = pos.expiry_yymmdd ? `
+          <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+        ` : '-';
+        
+        const mainRowHtml = `
+          <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
+            <td><strong>${pos.ticker}</strong></td>
+            <td>${pos.type}</td>
+            <td>${pos.strike !== "-" ? "$" + pos.strike : "-"}</td>
+            <td>${pos.exp}</td>
+            <td>${pos.qty}</td>
+            <td>$${pos.avg}</td>
+            <td>$${pos.mark}</td>
+            <td class="${parseFloat(pos.delta) >= 0 ? 'positive' : 'negative'}">${pos.delta}</td>
+            <td class="${parseFloat(pos.theta) >= 0 ? 'positive' : 'negative'}">${pos.theta}</td>
+            <td class="${pos.status}">${pos.pnl}</td>
+            <td>${closeBtnHtml}</td>
+          </tr>
+        `;
+        
+        // Match open orders with this position's ticker and legs to find active TPs
+        const positionOrders = openOrders.filter(ord => {
+          if (ord.symbol && pos.expiry_yymmdd) {
+            // For single options
+            return ord.symbol.toUpperCase().startsWith(pos.ticker.toUpperCase()) && ord.symbol.includes(pos.expiry_yymmdd);
+          } else if (ord.legs && ord.legs.length > 0) {
+            // For multi-leg spreads
+            return ord.legs.some(leg => leg.symbol.toUpperCase().startsWith(pos.ticker.toUpperCase()) && leg.symbol.includes(pos.expiry_yymmdd));
+          }
+          return false;
+        });
+
+        let openTpOrdersHtml = '';
+        if (positionOrders.length > 0) {
+          openTpOrdersHtml = `
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
+              <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase;">Active Take Profit Orders:</span>
+              <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                ${positionOrders.map(ord => `
+                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 6px 12px; border-radius: 6px; font-size: 12px;">
+                    <span>Limit: <strong>$${parseFloat(ord.limit_price || 0.0).toFixed(2)}</strong> (Qty: ${ord.qty})</span>
+                    <button class="action-btn-close" style="background: var(--accent-negative); margin: 0; padding: 4px 8px; font-size: 10px;" onclick="event.stopPropagation(); handleCancelTPOrder('${ord.id}')">Cancel</button>
                   </div>
-                  <div style="font-size: 13px;">
-                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
-                    <strong>${pos.gamma}</strong>
-                  </div>
-                  <div style="font-size: 13px;">
-                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
-                    <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        const tpConfigHtml = pos.expiry_yymmdd ? `
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-width: 320px; background: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+            <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase;">Set Good-Til-Cancelled Take Profit:</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span style="font-size: 13px; color: var(--text-muted);">$</span>
+              <input type="number" id="tp_input_${posKey}" placeholder="e.g. 0.80" step="0.05" min="0.01" style="flex: 1; padding: 6px 10px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: var(--text-main); outline: none;">
+              <button class="primary-btn" style="margin: 0; padding: 6px 12px; font-size: 12px; font-weight: 600;" onclick="event.stopPropagation(); submitTPTarget('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}', '${posKey}')">Submit</button>
+            </div>
+          </div>
+        ` : '';
+
+        const detailRowHtml = isExpanded ? `
+          <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
+            <td colspan="11" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
+                <div style="display: flex; gap: 40px; align-items: center;">
+                  <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
+                  <div style="display: flex; gap: 24px;">
+                    <div style="font-size: 13px;">
+                      <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
+                      <strong>${pos.delta}</strong>
+                    </div>
+                    <div style="font-size: 13px;">
+                      <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
+                      <strong>${pos.gamma}</strong>
+                    </div>
+                    <div style="font-size: 13px;">
+                      <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
+                      <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+                    </div>
                   </div>
                 </div>
+                ${renderTugOfWarMeter(pos)}
+                ${tpConfigHtml}
+                ${openTpOrdersHtml}
               </div>
-              ${renderTugOfWarMeter(pos)}
-            </div>
-          </td>
-        </tr>
-      ` : '';
-      
-      return mainRowHtml + detailRowHtml;
-    }).join("");
+            </td>
+          </tr>
+        ` : '';
+        
+        return mainRowHtml + detailRowHtml;
+      }).join("");
+    })
+    .catch(err => {
+      tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
+    });
   })
   .catch(err => {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
+    console.error("Error fetching open orders: ", err);
   });
 }
+
+window.submitTPTarget = function(ticker, type, strike, qty, expiry_yymmdd, posKey) {
+  const inputEl = document.getElementById(`tp_input_${posKey}`);
+  if (!inputEl || !inputEl.value) {
+    alert("Please enter a valid price target.");
+    return;
+  }
+  const tpVal = parseFloat(inputEl.value);
+  if (isNaN(tpVal) || tpVal <= 0) {
+    alert("Please enter a positive limit price.");
+    return;
+  }
+
+  const payload = {
+    username: currentUser,
+    profile: state.activeProfile,
+    ticker: ticker,
+    type: type,
+    strike: strike,
+    qty: parseInt(qty) || 1,
+    expiry_yymmdd: expiry_yymmdd,
+    tp_price: tpVal
+  };
+
+  fetch('/api/positions/update_tp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => {
+    if (!res.ok) {
+      return res.json().then(data => { throw new Error(data.detail || 'Failed to submit profit target limit.'); });
+    }
+    return res.json();
+  })
+  .then(data => {
+    alert(data.message || 'Take Profit limit order submitted.');
+    renderPositions();
+  })
+  .catch(err => alert(`Error: ${err.message}`));
+};
+
+window.handleCancelTPOrder = function(orderId) {
+  if (!confirm("Are you sure you want to cancel this Take Profit order?")) return;
+
+  const payload = {
+    username: currentUser,
+    profile: state.activeProfile,
+    order_id: orderId
+  };
+
+  fetch('/api/positions/cancel_order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => {
+    if (!res.ok) {
+      return res.json().then(data => { throw new Error(data.detail || 'Failed to cancel order.'); });
+    }
+    return res.json();
+  })
+  .then(data => {
+    alert(data.message || 'Order cancelled.');
+    renderPositions();
+  })
+  .catch(err => alert(`Error: ${err.message}`));
+};
 
 function findStrikeByDelta(strikes, targetDelta, type) {
   if (!strikes || strikes.length === 0) return null;

@@ -1302,6 +1302,214 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
             detail=f"Alpaca API close execution failed: {str(err)}"
         )
 
+class UpdateProfitTargetModel(BaseModel):
+    username: str
+    profile: str
+    ticker: str
+    type: str
+    strike: str
+    qty: int
+    expiry_yymmdd: str
+    tp_price: float
+
+class CancelOrderModel(BaseModel):
+    username: str
+    profile: str
+    order_id: str
+
+@app.post("/api/positions/update_tp")
+def update_profit_target(trade: UpdateProfitTargetModel):
+    if trade.username.lower().strip() == "gang":
+        raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
+    db = read_db()
+    user_state = db.get("users", {}).get(trade.username.lower(), {}).get("state", {})
+    profile_data = user_state.get("profiles", {}).get(trade.profile)
+    
+    if not profile_data:
+        raise HTTPException(status_code=404, detail="Active profile configuration not found")
+
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
+    is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
+
+    if not api_key or not secret_key:
+        raise HTTPException(status_code=400, detail="Alpaca credentials are empty.")
+
+    try:
+        trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+        
+        # Parse legs from strike string
+        order_legs = []
+        legs_matched = re.findall(r'(Sell|Buy)\s+(\d+(?:\.\d+)?)\s*([CP])', trade.strike, re.IGNORECASE)
+        
+        if legs_matched:
+            # Multi-leg option
+            for action, strike_str, type_char in legs_matched:
+                order_legs.append({
+                    "original_side": OrderSide.SELL if action.lower() == "sell" else OrderSide.BUY,
+                    "closing_side": OrderSide.BUY if action.lower() == "sell" else OrderSide.SELL,
+                    "strike": float(strike_str),
+                    "type": "CALL" if type_char.upper() == "C" else "PUT"
+                })
+        else:
+            # Single-leg option
+            try:
+                strike_clean = trade.strike.replace('$', '').strip()
+                strike_val = float(re.search(r'(\d+(?:\.\d+)?)', strike_clean).group(1))
+                opt_type = "CALL" if "call" in trade.type.lower() else "PUT"
+                order_legs.append({
+                    "original_side": OrderSide.BUY, # default fallback
+                    "closing_side": OrderSide.SELL,
+                    "strike": strike_val,
+                    "type": opt_type
+                })
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Could not parse strike: {str(e)}")
+
+        closing_legs = []
+        for leg in order_legs:
+            osi_symbol = format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"])
+            intent = PositionIntent.BUY_TO_CLOSE if leg["closing_side"] == OrderSide.BUY else PositionIntent.SELL_TO_CLOSE
+            closing_legs.append(
+                OptionLegRequest(
+                    symbol=osi_symbol,
+                    side=leg["closing_side"],
+                    ratio_qty=1,
+                    position_intent=intent
+                )
+            )
+
+        # Check if spread is credit or debit to determine correct sign of limit price
+        # Credits are closed by paying a debit (positive value). Debits are closed by collecting credit (negative limit value in Alpaca)
+        is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower()
+        limit_price = round(abs(trade.tp_price), 2) if is_credit else -round(abs(trade.tp_price), 2)
+
+        if len(closing_legs) > 1:
+            order_request = LimitOrderRequest(
+                qty=trade.qty,
+                limit_price=limit_price,
+                order_class=OrderClass.MLEG,
+                time_in_force=TimeInForce.GTC,
+                legs=closing_legs
+            )
+        else:
+            order_request = LimitOrderRequest(
+                symbol=closing_legs[0].symbol,
+                qty=trade.qty,
+                side=closing_legs[0].side,
+                time_in_force=TimeInForce.GTC,
+                limit_price=abs(limit_price)
+            )
+
+        order = trading_client.submit_order(order_request)
+
+        # Update local active trades registry with custom profit target and order ID
+        username_lower = trade.username.lower()
+        if "active_trades" in profile_data:
+            symbols_to_close = {format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"]) for leg in order_legs}
+            for t in profile_data["active_trades"]:
+                if t["ticker"] == trade.ticker.upper() and any(l["symbol"] in symbols_to_close for l in t.get("legs", [])):
+                    t["profit_target"] = abs(trade.tp_price)
+                    t["order_id"] = str(order.id)
+                    break
+            db["users"][username_lower]["state"] = user_state
+            write_db(db)
+
+        return {
+            "status": "success",
+            "order_id": str(order.id),
+            "message": f"Successfully placed GTC Take Profit Limit Order at ${abs(limit_price):.2f}"
+        }
+
+    except Exception as err:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to submit profit target order: {str(err)}"
+        )
+
+@app.get("/api/positions/orders")
+def get_open_orders(username: str, profile: str):
+    db = read_db()
+    user_state = db.get("users", {}).get(username.lower(), {}).get("state", {})
+    profile_data = user_state.get("profiles", {}).get(profile)
+    
+    if not profile_data:
+        return []
+
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
+    is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
+
+    if not api_key or not secret_key:
+        return []
+
+    try:
+        trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+        # Using native REST requests to fetch open orders
+        base_url = "https://api.alpaca.markets" if is_live else "https://paper-api.alpaca.markets"
+        headers = {
+            "APCA-API-KEY-ID": api_key,
+            "APCA-API-SECRET-KEY": secret_key
+        }
+        # Fetch status=open limit orders
+        res = requests.get(f"{base_url}/v2/orders?status=open&nested=true", headers=headers, timeout=5)
+        if res.status_code == 200:
+            orders_list = res.json()
+            formatted_orders = []
+            for o in orders_list:
+                formatted_orders.append({
+                    "id": o["id"],
+                    "client_order_id": o["client_order_id"],
+                    "symbol": o.get("symbol", ""),
+                    "qty": o.get("qty", "1"),
+                    "limit_price": o.get("limit_price"),
+                    "legs": [{
+                        "symbol": leg.get("symbol"),
+                        "side": leg.get("side"),
+                        "qty": leg.get("qty")
+                    } for leg in o.get("legs", [])]
+                })
+            return formatted_orders
+        return []
+    except Exception:
+        return []
+
+@app.post("/api/positions/cancel_order")
+def cancel_open_order(trade: CancelOrderModel):
+    if trade.username.lower().strip() == "gang":
+        raise HTTPException(status_code=403, detail="The public 'gang' account is read-only.")
+    db = read_db()
+    user_state = db.get("users", {}).get(trade.username.lower(), {}).get("state", {})
+    profile_data = user_state.get("profiles", {}).get(trade.profile)
+    
+    if not profile_data:
+        raise HTTPException(status_code=404, detail="Active profile configuration not found")
+
+    api_key = profile_data.get("alpacaApiKey") or os.environ.get("ALPACA_API_KEY")
+    secret_key = profile_data.get("alpacaSecretKey") or os.environ.get("ALPACA_SECRET_KEY")
+    is_live = check_is_live(api_key, profile_data.get("alpacaLive", False))
+
+    if not api_key or not secret_key:
+        raise HTTPException(status_code=400, detail="Alpaca credentials are empty.")
+
+    try:
+        trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+        trading_client.cancel_order_by_id(trade.order_id)
+        
+        # Clear the order reference in database active_trades
+        username_lower = trade.username.lower()
+        if "active_trades" in profile_data:
+            for t in profile_data["active_trades"]:
+                if t.get("order_id") == trade.order_id:
+                    t["order_id"] = "working" # reset status
+                    break
+            db["users"][username_lower]["state"] = user_state
+            write_db(db)
+
+        return {"status": "cancelled", "message": "Successfully cancelled limit order."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to cancel order: {str(e)}")
+
 # Hull Moving Average and indicator math helpers
 def calculate_wma(data: list, period: int) -> list:
     wma_list = []
