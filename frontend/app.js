@@ -703,6 +703,10 @@ function renderPositions() {
     fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
     .then(res => res.json())
     .then(positions => {
+      if (!Array.isArray(positions)) {
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions: ${positions && positions.detail ? positions.detail : "Invalid server response"}</td></tr>`;
+        return;
+      }
       window.activePositionsCache = positions;
       if (positions.length === 0) {
         tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
@@ -753,16 +757,23 @@ function renderPositions() {
         `;
         
         // Match open orders with this position's ticker and legs to find active TPs
-        const positionOrders = openOrders.filter(ord => {
-          if (ord.symbol && pos.expiry_yymmdd) {
+        const positionOrders = Array.isArray(openOrders) ? openOrders.filter(ord => {
+          const ordSymbol = ord.symbol || "";
+          const posTicker = (pos.ticker || "").toUpperCase();
+          const posExpiry = pos.expiry_yymmdd || "";
+          
+          if (ordSymbol && posExpiry) {
             // For single options
-            return ord.symbol.toUpperCase().startsWith(pos.ticker.toUpperCase()) && ord.symbol.includes(pos.expiry_yymmdd);
-          } else if (ord.legs && ord.legs.length > 0) {
+            return ordSymbol.toUpperCase().startsWith(posTicker) && ordSymbol.includes(posExpiry);
+          } else if (Array.isArray(ord.legs) && ord.legs.length > 0) {
             // For multi-leg spreads
-            return ord.legs.some(leg => leg.symbol.toUpperCase().startsWith(pos.ticker.toUpperCase()) && leg.symbol.includes(pos.expiry_yymmdd));
+            return ord.legs.some(leg => {
+              const legSymbol = leg.symbol || "";
+              return legSymbol && legSymbol.toUpperCase().startsWith(posTicker) && legSymbol.includes(posExpiry);
+            });
           }
           return false;
-        });
+        }) : [];
 
         let openTpOrdersHtml = '';
         if (positionOrders.length > 0) {
