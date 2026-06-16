@@ -306,14 +306,15 @@
           <p>Track your active options contracts, Greeks, and PnL metrics.</p>
         </header>
 
-        <div class="glass-card table-card">
+        <!-- Card 1: Active Positions -->
+        <div class="glass-card table-card" style="margin-bottom: 24px;">
+          <h3 style="margin-bottom: 16px; font-size: 15px; font-weight: 600; color: var(--text-main); font-family: var(--font-family-title);"><i data-lucide="briefcase" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle; width: 18px; height: 18px;"></i> Active Positions</h3>
           <table class="positions-table">
             <thead>
               <tr>
                 <th>Ticker</th>
                 <th>Type</th>
-                <th>Strike</th>
-                <th>Exp</th>
+                <th>Strike / BE</th>
                 <th>Qty</th>
                 <th>Avg Price</th>
                 <th>Mark</th>
@@ -324,6 +325,25 @@
               </tr>
             </thead>
             <tbody id="positionsTableBody">
+              <!-- Populate dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Card 2: Open Orders -->
+        <div class="glass-card table-card">
+          <h3 style="margin-bottom: 16px; font-size: 15px; font-weight: 600; color: var(--text-main); font-family: var(--font-family-title);"><i data-lucide="clock" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle; width: 18px; height: 18px;"></i> Open Orders</h3>
+          <table class="positions-table">
+            <thead>
+              <tr>
+                <th>Order ID / Symbol</th>
+                <th>Type</th>
+                <th>Qty</th>
+                <th>Limit Price</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="openOrdersTableBody">
               <!-- Populate dynamically -->
             </tbody>
           </table>

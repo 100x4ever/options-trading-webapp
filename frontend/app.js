@@ -743,12 +743,37 @@ function renderPositions() {
           <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
         ` : '-';
         
+        // Strike display: default to strike, but override with breakeven price if available
+        let strikeDisplay = pos.strike !== "-" ? "$" + pos.strike : "-";
+        if (pos.breakevens && pos.breakevens.length > 0) {
+          strikeDisplay = pos.breakevens.map(be => "$" + parseFloat(be.price).toFixed(2)).join(" / ");
+        }
+
+        // Credit/Debit Badge next to the strike price
+        let CD_badge = '';
+        if (pos.is_credit !== undefined) {
+          const label = pos.is_credit ? 'C' : 'D';
+          let colorClass = 'neutral';
+          const posTypeLower = (pos.type || "").toLowerCase();
+          const isBull = posTypeLower.includes("bull") || 
+                         (posTypeLower === "call" && pos.qty > 0) || 
+                         (posTypeLower === "put" && pos.qty < 0);
+          const isBear = posTypeLower.includes("bear") || 
+                         (posTypeLower === "put" && pos.qty > 0) || 
+                         (posTypeLower === "call" && pos.qty < 0);
+          if (isBull) {
+            colorClass = 'positive';
+          } else if (isBear) {
+            colorClass = 'negative';
+          }
+          CD_badge = ` <span class="credit-debit-badge ${colorClass}">${label}</span>`;
+        }
+
         const mainRowHtml = `
           <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
             <td><strong>${pos.ticker}</strong></td>
             <td>${pos.type}</td>
-            <td>${pos.strike !== "-" ? "$" + pos.strike : "-"}</td>
-            <td>${pos.exp}</td>
+            <td>${strikeDisplay}${CD_badge}</td>
             <td>${pos.qty}</td>
             <td>$${pos.avg}</td>
             <td>$${pos.mark}</td>
@@ -758,42 +783,6 @@ function renderPositions() {
             <td>${closeBtnHtml}</td>
           </tr>
         `;
-        
-        // Match open orders with this position's ticker and legs to find active TPs
-        const positionOrders = Array.isArray(openOrders) ? openOrders.filter(ord => {
-          const ordSymbol = ord.symbol || "";
-          const posTicker = (pos.ticker || "").toUpperCase();
-          const posExpiry = pos.expiry_yymmdd || "";
-          
-          if (ordSymbol && posExpiry) {
-            // For single options
-            return ordSymbol.toUpperCase().startsWith(posTicker) && ordSymbol.includes(posExpiry);
-          } else if (Array.isArray(ord.legs) && ord.legs.length > 0) {
-            // For multi-leg spreads
-            return ord.legs.some(leg => {
-              const legSymbol = leg.symbol || "";
-              return legSymbol && legSymbol.toUpperCase().startsWith(posTicker) && legSymbol.includes(posExpiry);
-            });
-          }
-          return false;
-        }) : [];
-
-        let openTpOrdersHtml = '';
-        if (positionOrders.length > 0) {
-          openTpOrdersHtml = `
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05);">
-              <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase;">Active Take Profit Orders:</span>
-              <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
-                ${positionOrders.map(ord => `
-                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 6px 12px; border-radius: 6px; font-size: 12px;">
-                    <span>Limit: <strong>$${parseFloat(ord.limit_price || 0.0).toFixed(2)}</strong> (Qty: ${ord.qty})</span>
-                    <button class="action-btn-close" style="background: var(--accent-negative); margin: 0; padding: 4px 8px; font-size: 10px;" onclick="event.stopPropagation(); handleCancelTPOrder('${ord.id}')">Cancel</button>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          `;
-        }
 
         const tpConfigHtml = pos.expiry_yymmdd ? `
           <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-width: 320px; background: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
@@ -808,7 +797,7 @@ function renderPositions() {
 
         const detailRowHtml = isExpanded ? `
           <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
-            <td colspan="11" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td colspan="10" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
               <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
                 <div style="display: flex; gap: 16px 40px; align-items: center; flex-wrap: wrap;">
                   <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
@@ -829,7 +818,6 @@ function renderPositions() {
                 </div>
                 ${renderTugOfWarMeter(pos)}
                 ${tpConfigHtml}
-                ${openTpOrdersHtml}
               </div>
             </td>
           </tr>
@@ -837,6 +825,30 @@ function renderPositions() {
         
         return mainRowHtml + detailRowHtml;
       }).join("");
+
+      // Render Open Orders card
+      const openOrdersTbody = document.getElementById("openOrdersTableBody");
+      if (openOrdersTbody) {
+        if (!Array.isArray(openOrders) || openOrders.length === 0) {
+          openOrdersTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No open take profit orders.</td></tr>`;
+        } else {
+          openOrdersTbody.innerHTML = openOrders.map(ord => {
+            const cancelBtnHtml = `
+              <button class="action-btn-close" style="background: var(--accent-negative); margin: 0; padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); handleCancelTPOrder('${ord.id}')">Cancel</button>
+            `;
+            const displaySymbol = ord.symbol || (ord.legs && ord.legs.length > 0 ? ord.legs[0].symbol.split(/\d/)[0] + ' Spread' : 'Spread Order');
+            return `
+              <tr>
+                <td><strong>${displaySymbol}</strong><span style="font-size:10px; color:var(--text-muted); display:block; margin-top:2px;">ID: ${ord.id.substring(0,8)}...</span></td>
+                <td>Limit Take Profit</td>
+                <td>${ord.qty}</td>
+                <td>$${parseFloat(ord.limit_price || 0.0).toFixed(2)}</td>
+                <td>${cancelBtnHtml}</td>
+              </tr>
+            `;
+          }).join("");
+        }
+      }
 
       // Restore stored input values
       Object.keys(scrollStates).forEach(id => {

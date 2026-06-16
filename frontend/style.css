@@ -1182,14 +1182,14 @@ body {
     overflow-x: hidden;
   }
 
+  .positions-table th:nth-child(5),
+  .positions-table td:nth-child(5),
   .positions-table th:nth-child(6),
   .positions-table td:nth-child(6),
   .positions-table th:nth-child(7),
   .positions-table td:nth-child(7),
   .positions-table th:nth-child(8),
-  .positions-table td:nth-child(8),
-  .positions-table th:nth-child(9),
-  .positions-table td:nth-child(9) {
+  .positions-table td:nth-child(8) {
     display: none !important;
   }
 
@@ -1297,5 +1297,31 @@ body {
   .tug-of-war-container {
     margin-top: 8px !important;
   }
+}
+
+/* Credit / Debit Badge styling */
+.credit-debit-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  text-transform: uppercase;
+}
+.credit-debit-badge.positive {
+  background: rgba(0, 240, 255, 0.12);
+  color: #00f0ff;
+  border: 1px solid rgba(0, 240, 255, 0.25);
+}
+.credit-debit-badge.negative {
+  background: rgba(255, 42, 95, 0.12);
+  color: #ff2a5f;
+  border: 1px solid rgba(255, 42, 95, 0.25);
+}
+.credit-debit-badge.neutral {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
