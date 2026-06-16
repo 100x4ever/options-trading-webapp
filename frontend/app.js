@@ -2221,10 +2221,6 @@ function initTechnicalCharts() {
     }
     const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
     if (activeTab === "dashboard") {
-      // Pause dashboard refresh if a position is currently expanded on the dashboard to prevent layout jumps
-      if (expandedDashboardPositions && expandedDashboardPositions.size > 0) {
-        return;
-      }
       renderTechnicalChart("QQQ", "dashboard");
       renderDashboard();
     } else if (activeTab === "chart") {
