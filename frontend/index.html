@@ -329,24 +329,6 @@
           </table>
         </div>
 
-        <!-- POSITION CHART CARD -->
-        <div class="glass-card chart-card" style="margin-top: 20px;">
-          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <div>
-              <h3><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> Position Tech Chart (1h Candles, 1 Week)</h3>
-              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Select an active position or type a ticker to load the 1h candle chart with HMA, Supertrend, and Stochastic overlays.</p>
-            </div>
-            <div style="margin-bottom: 0;">
-              <input type="text" id="positionChartTicker" value="QQQ" placeholder="AAPL, QQQ, TSLA..." style="width: 100px; padding: 8px 12px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-main);">
-            </div>
-          </div>
-          <div class="chart-container main-tech-chart">
-            <canvas id="positionTechnicalChartCanvas"></canvas>
-          </div>
-          <div class="chart-container stoch-tech-chart">
-            <canvas id="positionStochasticChartCanvas"></canvas>
-          </div>
-        </div>
       </section>
 
       <!-- TAB: OPTION CHAIN -->

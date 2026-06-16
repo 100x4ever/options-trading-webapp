@@ -1179,7 +1179,18 @@ body {
   }
   
   .table-card {
-    overflow-x: auto;
+    overflow-x: hidden;
+  }
+
+  .positions-table th:nth-child(6),
+  .positions-table td:nth-child(6),
+  .positions-table th:nth-child(7),
+  .positions-table td:nth-child(7),
+  .positions-table th:nth-child(8),
+  .positions-table td:nth-child(8),
+  .positions-table th:nth-child(9),
+  .positions-table td:nth-child(9) {
+    display: none !important;
   }
 
   /* 6. Options Builder Controls */

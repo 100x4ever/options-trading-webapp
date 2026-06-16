@@ -2123,14 +2123,6 @@ function initTechnicalCharts() {
     }, 500));
   }
   
-  const posTickerInput = document.getElementById("positionChartTicker");
-  if (posTickerInput) {
-    posTickerInput.addEventListener("input", debounce(() => {
-      const ticker = posTickerInput.value.trim().toUpperCase();
-      if (ticker.length >= 1) renderTechnicalChart(ticker, "positions");
-    }, 500));
-  }
-
   const fullTickerInput = document.getElementById("fullChartTicker");
   if (fullTickerInput) {
     fullTickerInput.addEventListener("input", debounce(() => {
@@ -2150,8 +2142,9 @@ function initTechnicalCharts() {
   const positionsNavBtn = document.getElementById("nav-positions");
   if (positionsNavBtn) {
     positionsNavBtn.addEventListener("click", () => {
-      const ticker = posTickerInput ? posTickerInput.value.trim().toUpperCase() : "QQQ";
-      setTimeout(() => renderTechnicalChart(ticker, "positions"), 100);
+      setTimeout(() => {
+        renderPositions();
+      }, 100);
     });
   }
 
@@ -2177,7 +2170,6 @@ function initTechnicalCharts() {
 
   setTimeout(() => {
     renderTechnicalChart("AAPL", "wizard");
-    renderTechnicalChart("QQQ", "positions");
     renderTechnicalChart("QQQ", "dashboard");
     renderTechnicalChart("QQQ", "chart");
   }, 1000);
