@@ -24,6 +24,7 @@ let state = {
 let currentUser = null;
 let isRegisterMode = false;
 let perfChart = null;
+window.activePositionsCache = [];
 let wizTechChart = null;
 let wizStochChart = null;
 let posTechChart = null;
@@ -621,6 +622,7 @@ function renderDashboard() {
     fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
     .then(res => res.json())
     .then(positions => {
+      window.activePositionsCache = positions;
       let totalPnL = 0;
       positions.forEach(pos => {
         const val = parseFloat(pos.pnl.replace(/[^\d.-]/g, '')) || 0;
@@ -693,6 +695,7 @@ function renderPositions() {
   fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
   .then(positions => {
+    window.activePositionsCache = positions;
     if (positions.length === 0) {
       tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
       return;
@@ -2108,11 +2111,67 @@ function renderTechnicalChart(ticker, tab) {
     const wicksData = slicedCloses.map((c, i) => [slicedLows[i], slicedHighs[i]]);
     const bodiesData = slicedCloses.map((c, i) => [slicedOpens[i], c]);
 
+    // Gather breakevens for the current ticker from cache
+    const activeTickerPositions = (window.activePositionsCache || []).filter(
+      pos => pos.ticker && pos.ticker.toUpperCase() === ticker.toUpperCase()
+    );
+
+    const breakevenDatasets = [];
+    const warmColors = ["#ff3366", "#ff6600", "#ffcc00", "#e6ad00"];
+    const coolColors = ["#00e676", "#00b0ff", "#d500f9", "#00e5ff"];
+    let warmIdx = 0;
+    let coolIdx = 0;
+    let allBreakevenPrices = [];
+
+    activeTickerPositions.forEach(pos => {
+      if (pos.breakevens && Array.isArray(pos.breakevens)) {
+        pos.breakevens.forEach(be => {
+          const price = parseFloat(be.price);
+          if (!isNaN(price)) {
+            allBreakevenPrices.push(price);
+            let color = "#ffffff";
+            if (be.direction === "under") {
+              color = warmColors[warmIdx % warmColors.length];
+              warmIdx++;
+            } else {
+              color = coolColors[coolIdx % coolColors.length];
+              coolIdx++;
+            }
+            
+            const beData = new Array(labels.length).fill(price);
+            breakevenDatasets.push({
+              type: "line",
+              label: `${pos.type} BE: $${price.toFixed(2)}`,
+              data: beData,
+              borderColor: color,
+              borderWidth: 1.5,
+              borderDash: [6, 4],
+              pointRadius: 0,
+              fill: false,
+              order: 4
+            });
+          }
+        });
+      }
+    });
+
     const ctxMain = mainCanvas.getContext("2d");
     let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : posTechChart);
 
-    const yMin = Math.floor(Math.min(...slicedLows) - ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0));
-    const yMax = Math.ceil(Math.max(...slicedHighs) + ((Math.max(...slicedHighs) - Math.min(...slicedLows)) * 0.05 || 2.0));
+    // Calculate baseline bounds based on high/low wicks
+    let minLows = Math.min(...slicedLows);
+    let maxHighs = Math.max(...slicedHighs);
+
+    // Expand bounds if we have breakeven lines to show
+    if (allBreakevenPrices.length > 0) {
+      const minBE = Math.min(...allBreakevenPrices);
+      const maxBE = Math.max(...allBreakevenPrices);
+      minLows = Math.min(minLows, minBE);
+      maxHighs = Math.max(maxHighs, maxBE);
+    }
+
+    const yMin = Math.floor(minLows - ((maxHighs - minLows) * 0.05 || 2.0));
+    const yMax = Math.ceil(maxHighs + ((maxHighs - minLows) * 0.05 || 2.0));
 
     if (currentMainChart) {
       currentMainChart.data.labels = labels;
@@ -2124,63 +2183,78 @@ function renderTechnicalChart(ticker, tab) {
       currentMainChart.data.datasets[1].borderColor = colors;
       currentMainChart.data.datasets[2].data = slicedHma;
       currentMainChart.data.datasets[3].data = slicedSupertrend;
+      
+      // Clean up old breakeven datasets if any existed
+      currentMainChart.data.datasets = currentMainChart.data.datasets.slice(0, 4);
+      // Append the new ones
+      breakevenDatasets.forEach(ds => {
+        currentMainChart.data.datasets.push(ds);
+      });
+
       currentMainChart.sourceData = { slicedHma, slicedSupertrend };
       updateMainChartLabels(currentMainChart, currentMainChart.lastHoveredIndex !== undefined ? currentMainChart.lastHoveredIndex : -1);
       currentMainChart.options.scales.y.min = yMin;
       currentMainChart.options.scales.y.max = yMax;
       currentMainChart.update("none");
     } else {
+      const initialDatasets = [
+        {
+          type: "bar",
+          label: "Price Body",
+          data: bodiesData,
+          backgroundColor: colors,
+          borderColor: colors,
+          borderWidth: 1,
+          barThickness: 10,
+          grouped: false,
+          order: 2
+        },
+        {
+          type: "bar",
+          label: "Wick Range",
+          data: wicksData,
+          backgroundColor: colors,
+          borderColor: colors,
+          borderWidth: 1,
+          barThickness: 2,
+          grouped: false,
+          order: 3
+        },
+        {
+          type: "line",
+          label: "30 HMA",
+          data: slicedHma,
+          borderColor: "#ffb800",
+          borderWidth: 1.8,
+          pointRadius: 0,
+          borderDash: [5, 4],
+          tension: 0.2,
+          order: 1
+        },
+        {
+          type: "line",
+          label: "Supertrend",
+          data: slicedSupertrend,
+          borderWidth: 2.5,
+          pointRadius: 0,
+          segment: {
+            borderColor: supertrendSegmentColor
+          },
+          tension: 0.1,
+          order: 0
+        }
+      ];
+
+      // Append active breakeven datasets
+      breakevenDatasets.forEach(ds => {
+        initialDatasets.push(ds);
+      });
+
       const newMainChart = new Chart(ctxMain, {
         type: "bar",
         data: {
           labels: labels,
-          datasets: [
-            {
-              type: "bar",
-              label: "Price Body",
-              data: bodiesData,
-              backgroundColor: colors,
-              borderColor: colors,
-              borderWidth: 1,
-              barThickness: 10,
-              grouped: false,
-              order: 2
-            },
-            {
-              type: "bar",
-              label: "Wick Range",
-              data: wicksData,
-              backgroundColor: colors,
-              borderColor: colors,
-              borderWidth: 1,
-              barThickness: 2,
-              grouped: false,
-              order: 3
-            },
-            {
-              type: "line",
-              label: "30 HMA",
-              data: slicedHma,
-              borderColor: "#ffb800",
-              borderWidth: 1.8,
-              pointRadius: 0,
-              borderDash: [5, 4],
-              tension: 0.2,
-              order: 1
-            },
-            {
-              type: "line",
-              label: "Supertrend",
-              data: slicedSupertrend,
-              borderWidth: 2.5,
-              pointRadius: 0,
-              segment: {
-                borderColor: supertrendSegmentColor
-              },
-              tension: 0.1,
-              order: 0
-            }
-          ]
+          datasets: initialDatasets
         },
         options: {
           responsive: true,

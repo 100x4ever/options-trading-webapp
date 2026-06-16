@@ -467,7 +467,11 @@ def get_alpaca_positions(username: str, profile: str):
                                     "current_value": current_c,
                                     "is_credit": is_cr,
                                     "profit_target": profit_t,
-                                    "stop_loss": stop_l
+                                    "stop_loss": stop_l,
+                                    "breakevens": [
+                                        {"price": round(short_put["strike"] - entry_p, 2), "direction": "above"},
+                                        {"price": round(short_call["strike"] + entry_p, 2), "direction": "under"}
+                                    ]
                                 })
                                 
                                 for idx in comb:
@@ -532,6 +536,21 @@ def get_alpaca_positions(username: str, profile: str):
                             stop_l = entry_p * 0.50
                             cur_val_to_send = net_val
 
+                        be_val = 0.0
+                        be_dir = "above"
+                        if strat_name == "Bull Call Spread":
+                            be_val = buy_leg['strike'] + entry_p
+                            be_dir = "above"
+                        elif strat_name == "Bear Call Spread":
+                            be_val = sell_leg['strike'] + entry_p
+                            be_dir = "under"
+                        elif strat_name == "Bear Put Spread":
+                            be_val = buy_leg['strike'] - entry_p
+                            be_dir = "under"
+                        elif strat_name == "Bull Put Spread":
+                            be_val = sell_leg['strike'] - entry_p
+                            be_dir = "above"
+
                         formatted_positions.append({
                             "ticker": ticker,
                             "type": strat_name,
@@ -550,7 +569,8 @@ def get_alpaca_positions(username: str, profile: str):
                             "current_value": cur_val_to_send,
                             "is_credit": is_cr,
                             "profit_target": profit_t,
-                            "stop_loss": stop_l
+                            "stop_loss": stop_l,
+                            "breakevens": [{"price": round(be_val, 2), "direction": be_dir}]
                         })
                         
                         used_indices.add(i)
@@ -590,6 +610,16 @@ def get_alpaca_positions(username: str, profile: str):
                         stop_l = entry_p * 0.50
                         cur_val_to_send = net_val
 
+                    be_val = 0.0
+                    be_dir = "above"
+                    is_buy = (leg_qty > 0)
+                    if leg["type"] == "CALL":
+                        be_val = strike_val + entry_p
+                        be_dir = "above" if is_buy else "under"
+                    else:
+                        be_val = strike_val - entry_p
+                        be_dir = "under" if is_buy else "above"
+
                     formatted_positions.append({
                         "ticker": ticker,
                         "type": "Call" if leg["type"] == "CALL" else "Put",
@@ -608,7 +638,8 @@ def get_alpaca_positions(username: str, profile: str):
                         "current_value": cur_val_to_send,
                         "is_credit": is_cr,
                         "profit_target": profit_t,
-                        "stop_loss": stop_l
+                        "stop_loss": stop_l,
+                        "breakevens": [{"price": round(be_val, 2), "direction": be_dir}]
                     })
                     
         for pos in other_positions:
