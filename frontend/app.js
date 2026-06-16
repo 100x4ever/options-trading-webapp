@@ -693,188 +693,198 @@ function renderDashboard() {
   }
 }
 
-function renderPositions() {
+function renderPositions(useCache = false) {
   const tbody = document.getElementById("positionsTableBody");
   if (!tbody) return;
 
   if (!currentUser || !state.activeProfile) return;
 
+  const performRender = (openOrders, positions) => {
+    if (!Array.isArray(positions)) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions: ${positions && positions.detail ? positions.detail : "Invalid server response"}</td></tr>`;
+      return;
+    }
+    if (positions.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
+      return;
+    }
+    
+    // Save focused element ID, cursor selection, and scroll positions to prevent jumpiness on mobile refresh
+    const activeEl = document.activeElement;
+    const activeElId = activeEl ? activeEl.id : null;
+    const activeElVal = activeEl && activeEl.tagName === 'INPUT' ? activeEl.value : null;
+    let activeElSelStart = null;
+    let activeElSelEnd = null;
+    if (activeEl && activeEl.tagName === 'INPUT') {
+      try {
+        activeElSelStart = activeEl.selectionStart;
+        activeElSelEnd = activeEl.selectionEnd;
+      } catch (e) {}
+    }
+    
+    const scrollStates = {};
+    const inputs = tbody.querySelectorAll('input[type="number"]');
+    inputs.forEach(inp => {
+      scrollStates[inp.id] = inp.value;
+    });
+
+    tbody.innerHTML = positions.map(pos => {
+      const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
+      const isExpanded = expandedPositions.has(posKey);
+      
+      const closeBtnHtml = pos.expiry_yymmdd ? `
+        <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+      ` : '-';
+      
+      // Strike display: default to strike, but override with breakeven price if available
+      let strikeDisplay = pos.strike !== "-" ? "$" + pos.strike : "-";
+      if (pos.breakevens && pos.breakevens.length > 0) {
+        strikeDisplay = pos.breakevens.map(be => "$" + parseFloat(be.price).toFixed(2)).join(" / ");
+      }
+
+      // Credit/Debit Badge next to the strike price
+      let CD_badge = '';
+      if (pos.is_credit !== undefined) {
+        const label = pos.is_credit ? 'C' : 'D';
+        let colorClass = 'neutral';
+        const posTypeLower = (pos.type || "").toLowerCase();
+        const isBull = posTypeLower.includes("bull") || 
+                       (posTypeLower === "call" && pos.qty > 0) || 
+                       (posTypeLower === "put" && pos.qty < 0);
+        const isBear = posTypeLower.includes("bear") || 
+                       (posTypeLower === "put" && pos.qty > 0) || 
+                       (posTypeLower === "call" && pos.qty < 0);
+        if (isBull) {
+          colorClass = 'positive';
+        } else if (isBear) {
+          colorClass = 'negative';
+        }
+        CD_badge = ` <span class="credit-debit-badge ${colorClass}">${label}</span>`;
+      }
+
+      const mainRowHtml = `
+        <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
+          <td><strong>${pos.ticker}</strong></td>
+          <td>${strikeDisplay}${CD_badge}</td>
+          <td>${pos.qty}</td>
+          <td>$${pos.avg}</td>
+          <td>$${pos.mark}</td>
+          <td class="${parseFloat(pos.delta) >= 0 ? 'positive' : 'negative'}">${pos.delta}</td>
+          <td class="${parseFloat(pos.theta) >= 0 ? 'positive' : 'negative'}">${pos.theta}</td>
+          <td class="${pos.status}">${pos.pnl}</td>
+          <td>${closeBtnHtml}</td>
+        </tr>
+      `;
+
+      const tpConfigHtml = pos.expiry_yymmdd ? `
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-width: 320px; background: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+          <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase;">Set Good-Til-Cancelled Take Profit:</span>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-size: 13px; color: var(--text-muted);">$</span>
+            <input type="number" id="tp_input_${posKey}" placeholder="e.g. 0.80" step="0.05" min="0.01" style="flex: 1; padding: 6px 10px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: var(--text-main); outline: none;">
+            <button class="primary-btn" style="margin: 0; padding: 6px 12px; font-size: 12px; font-weight: 600;" onclick="event.stopPropagation(); submitTPTarget('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}', '${posKey}')">Submit</button>
+          </div>
+        </div>
+      ` : '';
+
+      const detailRowHtml = isExpanded ? `
+        <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
+          <td colspan="9" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
+              <div style="display: flex; gap: 16px 40px; align-items: center; flex-wrap: wrap;">
+                <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
+                <div style="display: flex; gap: 16px 24px; flex-wrap: wrap;">
+                  <div style="font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
+                    <strong>${pos.delta}</strong>
+                  </div>
+                  <div style="font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
+                    <strong>${pos.gamma}</strong>
+                  </div>
+                  <div style="font-size: 13px;">
+                    <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
+                    <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
+                  </div>
+                </div>
+              </div>
+              ${renderTugOfWarMeter(pos)}
+              ${tpConfigHtml}
+            </div>
+          </td>
+        </tr>
+      ` : '';
+      
+      return mainRowHtml + detailRowHtml;
+    }).join("");
+
+    // Render Open Orders card
+    const openOrdersTbody = document.getElementById("openOrdersTableBody");
+    if (openOrdersTbody) {
+      if (!Array.isArray(openOrders) || openOrders.length === 0) {
+        openOrdersTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No open take profit orders.</td></tr>`;
+      } else {
+        openOrdersTbody.innerHTML = openOrders.map(ord => {
+          const cancelBtnHtml = `
+            <button class="action-btn-close" style="background: var(--accent-negative); margin: 0; padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); handleCancelTPOrder('${ord.id}')">Cancel</button>
+          `;
+          const displaySymbol = ord.symbol || (ord.legs && ord.legs.length > 0 ? ord.legs[0].symbol.split(/\d/)[0] + ' Spread' : 'Spread Order');
+          return `
+            <tr>
+              <td><strong>${displaySymbol}</strong><span style="font-size:10px; color:var(--text-muted); display:block; margin-top:2px;">ID: ${ord.id.substring(0,8)}...</span></td>
+              <td>Limit Take Profit</td>
+              <td>${ord.qty}</td>
+              <td>$${parseFloat(ord.limit_price || 0.0).toFixed(2)}</td>
+              <td>${cancelBtnHtml}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+    }
+
+    // Restore stored input values
+    Object.keys(scrollStates).forEach(id => {
+      const inp = tbody.querySelector(`#${id}`);
+      if (inp && scrollStates[id] !== undefined) {
+        inp.value = scrollStates[id];
+      }
+    });
+
+    // Restore focus and cursor positions to prevent layout shifts on update ticks
+    if (activeElId) {
+      const restoredEl = tbody.querySelector(`#${activeElId}`);
+      if (restoredEl) {
+        if (activeElVal !== null) {
+          restoredEl.value = activeElVal;
+        }
+        restoredEl.focus();
+        if (activeElSelStart !== null && activeElSelEnd !== null && restoredEl.setSelectionRange) {
+          try {
+            restoredEl.setSelectionRange(activeElSelStart, activeElSelEnd);
+          } catch (e) {}
+        }
+      }
+    }
+  };
+
+  if (useCache && window.activePositionsCache && window.openOrdersCache) {
+    performRender(window.openOrdersCache, window.activePositionsCache);
+    return;
+  }
+
   // Fetch open orders first to cross reference Take Profit status
   fetch(`/api/positions/orders?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
   .then(openOrders => {
+    window.openOrdersCache = openOrders;
     fetch(`/api/positions?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
     .then(res => res.json())
     .then(positions => {
-      if (!Array.isArray(positions)) {
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions: ${positions && positions.detail ? positions.detail : "Invalid server response"}</td></tr>`;
-        return;
-      }
       window.activePositionsCache = positions;
-      if (positions.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No active option/stock positions found.</td></tr>`;
-        return;
-      }
-      
-      // Save focused element ID, cursor selection, and scroll positions to prevent jumpiness on mobile refresh
-      const activeEl = document.activeElement;
-      const activeElId = activeEl ? activeEl.id : null;
-      const activeElVal = activeEl && activeEl.tagName === 'INPUT' ? activeEl.value : null;
-      let activeElSelStart = null;
-      let activeElSelEnd = null;
-      if (activeEl && activeEl.tagName === 'INPUT') {
-        try {
-          activeElSelStart = activeEl.selectionStart;
-          activeElSelEnd = activeEl.selectionEnd;
-        } catch (e) {}
-      }
-      
-      const scrollStates = {};
-      const inputs = tbody.querySelectorAll('input[type="number"]');
-      inputs.forEach(inp => {
-        scrollStates[inp.id] = inp.value;
-      });
-
-      tbody.innerHTML = positions.map(pos => {
-        const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
-        const isExpanded = expandedPositions.has(posKey);
-        
-        const closeBtnHtml = pos.expiry_yymmdd ? `
-          <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
-        ` : '-';
-        
-        // Strike display: default to strike, but override with breakeven price if available
-        let strikeDisplay = pos.strike !== "-" ? "$" + pos.strike : "-";
-        if (pos.breakevens && pos.breakevens.length > 0) {
-          strikeDisplay = pos.breakevens.map(be => "$" + parseFloat(be.price).toFixed(2)).join(" / ");
-        }
-
-        // Credit/Debit Badge next to the strike price
-        let CD_badge = '';
-        if (pos.is_credit !== undefined) {
-          const label = pos.is_credit ? 'C' : 'D';
-          let colorClass = 'neutral';
-          const posTypeLower = (pos.type || "").toLowerCase();
-          const isBull = posTypeLower.includes("bull") || 
-                         (posTypeLower === "call" && pos.qty > 0) || 
-                         (posTypeLower === "put" && pos.qty < 0);
-          const isBear = posTypeLower.includes("bear") || 
-                         (posTypeLower === "put" && pos.qty > 0) || 
-                         (posTypeLower === "call" && pos.qty < 0);
-          if (isBull) {
-            colorClass = 'positive';
-          } else if (isBear) {
-            colorClass = 'negative';
-          }
-          CD_badge = ` <span class="credit-debit-badge ${colorClass}">${label}</span>`;
-        }
-
-        const mainRowHtml = `
-          <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
-            <td><strong>${pos.ticker}</strong></td>
-            <td>${strikeDisplay}${CD_badge}</td>
-            <td>${pos.qty}</td>
-            <td>$${pos.avg}</td>
-            <td>$${pos.mark}</td>
-            <td class="${parseFloat(pos.delta) >= 0 ? 'positive' : 'negative'}">${pos.delta}</td>
-            <td class="${parseFloat(pos.theta) >= 0 ? 'positive' : 'negative'}">${pos.theta}</td>
-            <td class="${pos.status}">${pos.pnl}</td>
-            <td>${closeBtnHtml}</td>
-          </tr>
-        `;
-
-        const tpConfigHtml = pos.expiry_yymmdd ? `
-          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px; max-width: 320px; background: rgba(255, 255, 255, 0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
-            <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase;">Set Good-Til-Cancelled Take Profit:</span>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <span style="font-size: 13px; color: var(--text-muted);">$</span>
-              <input type="number" id="tp_input_${posKey}" placeholder="e.g. 0.80" step="0.05" min="0.01" style="flex: 1; padding: 6px 10px; font-size: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: var(--text-main); outline: none;">
-              <button class="primary-btn" style="margin: 0; padding: 6px 12px; font-size: 12px; font-weight: 600;" onclick="event.stopPropagation(); submitTPTarget('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}', '${posKey}')">Submit</button>
-            </div>
-          </div>
-        ` : '';
-
-        const detailRowHtml = isExpanded ? `
-          <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
-            <td colspan="9" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
-              <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
-                <div style="display: flex; gap: 16px 40px; align-items: center; flex-wrap: wrap;">
-                  <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
-                  <div style="display: flex; gap: 16px 24px; flex-wrap: wrap;">
-                    <div style="font-size: 13px;">
-                      <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
-                      <strong>${pos.delta}</strong>
-                    </div>
-                    <div style="font-size: 13px;">
-                      <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Gamma:</span>
-                      <strong>${pos.gamma}</strong>
-                    </div>
-                    <div style="font-size: 13px;">
-                      <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Theta:</span>
-                      <strong style="color: ${parseFloat(pos.theta) < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">${pos.theta}</strong>
-                    </div>
-                  </div>
-                </div>
-                ${renderTugOfWarMeter(pos)}
-                ${tpConfigHtml}
-              </div>
-            </td>
-          </tr>
-        ` : '';
-        
-        return mainRowHtml + detailRowHtml;
-      }).join("");
-
-      // Render Open Orders card
-      const openOrdersTbody = document.getElementById("openOrdersTableBody");
-      if (openOrdersTbody) {
-        if (!Array.isArray(openOrders) || openOrders.length === 0) {
-          openOrdersTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No open take profit orders.</td></tr>`;
-        } else {
-          openOrdersTbody.innerHTML = openOrders.map(ord => {
-            const cancelBtnHtml = `
-              <button class="action-btn-close" style="background: var(--accent-negative); margin: 0; padding: 6px 12px; font-size: 11px;" onclick="event.stopPropagation(); handleCancelTPOrder('${ord.id}')">Cancel</button>
-            `;
-            const displaySymbol = ord.symbol || (ord.legs && ord.legs.length > 0 ? ord.legs[0].symbol.split(/\d/)[0] + ' Spread' : 'Spread Order');
-            return `
-              <tr>
-                <td><strong>${displaySymbol}</strong><span style="font-size:10px; color:var(--text-muted); display:block; margin-top:2px;">ID: ${ord.id.substring(0,8)}...</span></td>
-                <td>Limit Take Profit</td>
-                <td>${ord.qty}</td>
-                <td>$${parseFloat(ord.limit_price || 0.0).toFixed(2)}</td>
-                <td>${cancelBtnHtml}</td>
-              </tr>
-            `;
-          }).join("");
-        }
-      }
-
-      // Restore stored input values
-      Object.keys(scrollStates).forEach(id => {
-        const inp = tbody.querySelector(`#${id}`);
-        if (inp && scrollStates[id] !== undefined) {
-          inp.value = scrollStates[id];
-        }
-      });
-
-      // Restore focus and cursor positions to prevent layout shifts on update ticks
-      if (activeElId) {
-        const restoredEl = tbody.querySelector(`#${activeElId}`);
-        if (restoredEl) {
-          if (activeElVal !== null) {
-            restoredEl.value = activeElVal;
-          }
-          restoredEl.focus();
-          if (activeElSelStart !== null && activeElSelEnd !== null && restoredEl.setSelectionRange) {
-            try {
-              restoredEl.setSelectionRange(activeElSelStart, activeElSelEnd);
-            } catch (e) {}
-          }
-        }
-      }
+      performRender(openOrders, positions);
     })
     .catch(err => {
-      tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
     });
   })
   .catch(err => {
@@ -2803,7 +2813,7 @@ window.toggleTablePosition = function(posKey) {
   } else {
     expandedPositions.add(posKey);
   }
-  renderPositions();
+  renderPositions(true);
 };
 
 function renderTugOfWarMeter(pos) {

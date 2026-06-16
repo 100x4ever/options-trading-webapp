@@ -1193,6 +1193,13 @@ body {
     display: none !important;
   }
 
+  .action-btn-close, 
+  .positions-table .primary-btn {
+    padding: 4px 8px !important;
+    font-size: 10px !important;
+    border-radius: 4px !important;
+  }
+
   /* 6. Options Builder Controls */
   .options-controls {
     flex-direction: column;
