@@ -709,6 +709,18 @@ function renderPositions() {
         return;
       }
       
+      // Save focused element ID, cursor selection, and scroll positions to prevent jumpiness on mobile refresh
+      const activeElId = document.activeElement ? document.activeElement.id : null;
+      const activeElVal = activeElId && document.activeElement.tagName === 'INPUT' ? document.activeElement.value : null;
+      const activeElSelStart = activeElId && document.activeElement.tagName === 'INPUT' ? document.activeElement.selectionStart : null;
+      const activeElSelEnd = activeElId && document.activeElement.tagName === 'INPUT' ? document.activeElement.selectionEnd : null;
+      
+      const scrollStates = {};
+      const inputs = tbody.querySelectorAll('input[type="number"]');
+      inputs.forEach(inp => {
+        scrollStates[inp.id] = inp.value;
+      });
+
       tbody.innerHTML = positions.map(pos => {
         const posKey = `${pos.ticker}_${pos.strike}_${pos.type}`;
         const isExpanded = expandedPositions.has(posKey);
@@ -804,6 +816,30 @@ function renderPositions() {
         
         return mainRowHtml + detailRowHtml;
       }).join("");
+
+      // Restore stored input values
+      Object.keys(scrollStates).forEach(id => {
+        const inp = tbody.querySelector(`#${id}`);
+        if (inp && scrollStates[id] !== undefined) {
+          inp.value = scrollStates[id];
+        }
+      });
+
+      // Restore focus and cursor positions to prevent layout shifts on update ticks
+      if (activeElId) {
+        const restoredEl = tbody.querySelector(`#${activeElId}`);
+        if (restoredEl) {
+          if (activeElVal !== null) {
+            restoredEl.value = activeElVal;
+          }
+          restoredEl.focus();
+          if (activeElSelStart !== null && activeElSelEnd !== null && restoredEl.setSelectionRange) {
+            try {
+              restoredEl.setSelectionRange(activeElSelStart, activeElSelEnd);
+            } catch (e) {}
+          }
+        }
+      }
     })
     .catch(err => {
       tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; color: var(--accent-negative); padding: 24px;">Failed to fetch active positions.</td></tr>`;
