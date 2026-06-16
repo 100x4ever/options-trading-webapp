@@ -1226,26 +1226,27 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
         # is_credit indicates if the entry was credit.
         is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower()
         mid_price = abs(net_value)
-        spread_offset = max(0.02, round(mid_price * 0.08, 2))
+        # Tighten spread offset to 3% instead of 8% to stay closer to mid-price and prevent sandbox order cancellations
+        spread_offset = max(0.01, round(mid_price * 0.03, 2))
         
         if is_credit:
             # We had sold for credit (short position). To close, we BUY BACK (debit).
-            # Start cheap (low debit value) and walk the limit price UP (higher debit limit) to ensure fill.
+            # Start slightly below mid (cheap debit value) and walk the limit price UP (higher debit limit) to ensure fill.
             steps = [
                 round(max(0.01, mid_price - spread_offset), 2),
-                round(max(0.01, mid_price - spread_offset / 2), 2),
                 round(mid_price, 2),
-                round(mid_price + spread_offset / 2, 2)
+                round(mid_price + spread_offset, 2),
+                round(mid_price + spread_offset * 1.5, 2)
             ]
         else:
             # We had bought for debit (long position). To close, we SELL (credit).
-            # Start demanding (high credit limit, represented as negative limit_price in Alpaca MLEG) 
+            # Start slightly above mid (high credit limit, negative limit_price in Alpaca MLEG) 
             # and walk the limit price DOWN (cheaper credit limit) to ensure fill.
             steps = [
                 round(-(mid_price + spread_offset), 2),
-                round(-(mid_price + spread_offset / 2), 2),
                 round(-mid_price, 2),
-                round(-max(0.01, mid_price - spread_offset / 2), 2)
+                round(-max(0.01, mid_price - spread_offset), 2),
+                round(-max(0.01, mid_price - spread_offset * 1.5), 2)
             ]
  
         order_request = LimitOrderRequest(
