@@ -31,10 +31,14 @@ let posTechChart = null;
 let posStochChart = null;
 let dashTechChart = null;
 let dashStochChart = null;
+let fullTechChart = null;
+let fullStochChart = null;
 
 // Track expanded position details
 const expandedPositions = new Set();
 const expandedDashboardPositions = new Set();
+const activeTicker = "QQQ"; // global tracker for active ticker
+
 
 // Tooltip dictionary mapping hover-trigger names to detailed descriptions
 const tooltips = {
@@ -1972,6 +1976,14 @@ function initTechnicalCharts() {
       if (ticker.length >= 1) renderTechnicalChart(ticker, "positions");
     }, 500));
   }
+
+  const fullTickerInput = document.getElementById("fullChartTicker");
+  if (fullTickerInput) {
+    fullTickerInput.addEventListener("input", debounce(() => {
+      const ticker = fullTickerInput.value.trim().toUpperCase();
+      if (ticker.length >= 1) renderTechnicalChart(ticker, "chart");
+    }, 500));
+  }
   
   const wizardNavBtn = document.getElementById("nav-wizard");
   if (wizardNavBtn) {
@@ -1989,6 +2001,14 @@ function initTechnicalCharts() {
     });
   }
 
+  const fullChartNavBtn = document.getElementById("nav-chart");
+  if (fullChartNavBtn) {
+    fullChartNavBtn.addEventListener("click", () => {
+      const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
+      setTimeout(() => renderTechnicalChart(ticker, "chart"), 100);
+    });
+  }
+  
   // Reload dashboard charts on dashboard tab click
   const dashboardNavBtn = document.getElementById("nav-dashboard");
   if (dashboardNavBtn) {
@@ -2005,14 +2025,18 @@ function initTechnicalCharts() {
     renderTechnicalChart("AAPL", "wizard");
     renderTechnicalChart("QQQ", "positions");
     renderTechnicalChart("QQQ", "dashboard");
+    renderTechnicalChart("QQQ", "chart");
   }, 1000);
 
   // Auto-refresh QQQ Dashboard chart, account balance, and positions every 5 seconds for close to live data
   setInterval(() => {
     const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
-    if (activeTab === "dashboard" || activeTab === "positions") {
+    if (activeTab === "dashboard" || activeTab === "positions" || activeTab === "chart") {
       if (activeTab === "dashboard") {
         renderTechnicalChart("QQQ", "dashboard");
+      } else if (activeTab === "chart") {
+        const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
+        renderTechnicalChart(ticker, "chart");
       }
       renderDashboard();
       renderPositions();
@@ -2053,6 +2077,7 @@ function updateStochChartLabels(chart, index) {
 function renderTechnicalChart(ticker, tab) {
   const isWiz = tab === "wizard";
   const isDash = tab === "dashboard";
+  const isFull = tab === "chart";
   let mainCanvasId = "positionTechnicalChartCanvas";
   let stochCanvasId = "positionStochasticChartCanvas";
   if (isWiz) {
@@ -2061,6 +2086,9 @@ function renderTechnicalChart(ticker, tab) {
   } else if (isDash) {
     mainCanvasId = "dashTechnicalChartCanvas";
     stochCanvasId = "dashStochasticChartCanvas";
+  } else if (isFull) {
+    mainCanvasId = "fullTechnicalChartCanvas";
+    stochCanvasId = "fullStochasticChartCanvas";
   }
   
   const mainCanvas = document.getElementById(mainCanvasId);
@@ -2075,6 +2103,14 @@ function renderTechnicalChart(ticker, tab) {
       if (livePriceEl && data.closes && data.closes.length > 0) {
         const lastPrice = data.closes[data.closes.length - 1];
         livePriceEl.textContent = `$${parseFloat(lastPrice).toFixed(2)}`;
+      }
+    }
+    if (isFull) {
+      const headerTitle = document.getElementById("fullChartTitle");
+      if (headerTitle && data.closes && data.closes.length > 0) {
+        const lastPrice = data.closes[data.closes.length - 1];
+        headerTitle.innerHTML = `<i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> ${ticker.toUpperCase()} Full Chart (1h Candles, 1 Week) <span style="margin-left: 15px; color: var(--accent-neutral); font-weight: 700;">$${parseFloat(lastPrice).toFixed(2)}</span>`;
+        lucide.createIcons();
       }
     }
     
@@ -2156,7 +2192,7 @@ function renderTechnicalChart(ticker, tab) {
     });
 
     const ctxMain = mainCanvas.getContext("2d");
-    let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : posTechChart);
+    let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : (isFull ? fullTechChart : posTechChart));
 
     // Calculate baseline bounds based on high/low wicks
     let minLows = Math.min(...slicedLows);
@@ -2270,7 +2306,12 @@ function renderTechnicalChart(ticker, tab) {
           },
           plugins: {
             legend: {
-              labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
+              labels: {
+                color: "rgba(255,255,255,0.7)",
+                font: { size: 10 },
+                usePointStyle: true,
+                pointStyle: "line"
+              }
             }
           },
           scales: {
@@ -2301,11 +2342,12 @@ function renderTechnicalChart(ticker, tab) {
 
       if (isWiz) wizTechChart = newMainChart;
       else if (isDash) dashTechChart = newMainChart;
+      else if (isFull) fullTechChart = newMainChart;
       else posTechChart = newMainChart;
     }
     
     const ctxStoch = stochCanvas.getContext("2d");
-    let currentStochChart = isWiz ? wizStochChart : (isDash ? dashStochChart : posStochChart);
+    let currentStochChart = isWiz ? wizStochChart : (isDash ? dashStochChart : (isFull ? fullStochChart : posStochChart));
     
     if (currentStochChart) {
       currentStochChart.data.labels = labels;
@@ -2352,7 +2394,12 @@ function renderTechnicalChart(ticker, tab) {
           },
           plugins: {
             legend: {
-              labels: { color: "rgba(255,255,255,0.7)", font: { size: 10 } }
+              labels: {
+                color: "rgba(255,255,255,0.7)",
+                font: { size: 10 },
+                usePointStyle: true,
+                pointStyle: "line"
+              }
             }
           },
           scales: {
@@ -2382,6 +2429,7 @@ function renderTechnicalChart(ticker, tab) {
 
       if (isWiz) wizStochChart = newStochChart;
       else if (isDash) dashStochChart = newStochChart;
+      else if (isFull) fullStochChart = newStochChart;
       else posStochChart = newStochChart;
     }
   })
