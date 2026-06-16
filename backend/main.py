@@ -523,7 +523,7 @@ def get_alpaca_positions(username: str, profile: str):
 
                         matching_trade = find_active_trade(ticker, expiry_yymmdd, strat_name)
                         entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
-                        is_cr = "credit" in strat_name.lower() or "condor" in strat_name.lower()
+                        is_cr = strat_name in ["Bear Call Spread", "Bull Put Spread"] or "condor" in strat_name.lower()
                         
                         if is_cr:
                             current_c = -net_val

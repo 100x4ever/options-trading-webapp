@@ -772,7 +772,6 @@ function renderPositions() {
         const mainRowHtml = `
           <tr style="cursor: pointer;" onclick="toggleTablePosition('${posKey}')">
             <td><strong>${pos.ticker}</strong></td>
-            <td>${pos.type}</td>
             <td>${strikeDisplay}${CD_badge}</td>
             <td>${pos.qty}</td>
             <td>$${pos.avg}</td>
@@ -797,7 +796,7 @@ function renderPositions() {
 
         const detailRowHtml = isExpanded ? `
           <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
-            <td colspan="10" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td colspan="9" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
               <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
                 <div style="display: flex; gap: 16px 40px; align-items: center; flex-wrap: wrap;">
                   <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>

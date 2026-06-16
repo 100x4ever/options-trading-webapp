@@ -1182,14 +1182,14 @@ body {
     overflow-x: hidden;
   }
 
+  .positions-table th:nth-child(4),
+  .positions-table td:nth-child(4),
   .positions-table th:nth-child(5),
   .positions-table td:nth-child(5),
   .positions-table th:nth-child(6),
   .positions-table td:nth-child(6),
   .positions-table th:nth-child(7),
-  .positions-table td:nth-child(7),
-  .positions-table th:nth-child(8),
-  .positions-table td:nth-child(8) {
+  .positions-table td:nth-child(7) {
     display: none !important;
   }
 
