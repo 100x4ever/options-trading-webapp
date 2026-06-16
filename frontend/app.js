@@ -2835,7 +2835,8 @@ function _unused_renderTugOfWarMeter(pos) {
   }
   
   const isCredit = pos.is_credit !== undefined ? pos.is_credit : (pos.type.toLowerCase().includes("credit") || pos.type.toLowerCase().includes("condor") || pos.qty < 0);
-  const target = pos.profit_target !== undefined ? parseFloat(pos.profit_target) : (isCredit ? entry * 0.50 : entry * 1.50);
+  const tpRatio = pos.profit_target !== undefined ? parseFloat(pos.profit_target) : 0.50;
+  const target = isCredit ? (entry * (1.0 - tpRatio)) : (entry * (1.0 + tpRatio));
   const stop = pos.stop_loss !== undefined ? parseFloat(pos.stop_loss) : (isCredit ? entry * 2.00 : entry * 0.50);
   
   let percent = 0;

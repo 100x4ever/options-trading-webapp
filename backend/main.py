@@ -127,7 +127,7 @@ def format_osi_symbol(ticker: str, expiry_yymmdd: str, option_type: str, strike_
     return f"{ticker_clean}{expiry_yymmdd}{type_char}{strike_formatted}"
 
 # Helper to automatically submit a Good-Til-Cancelled Take Profit limit order for a position
-def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_list: list, qty: int, strategy_name: str, is_credit: bool, tp_price: float):
+def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_list: list, qty: int, strategy_name: str, is_credit: bool, tp_price: float, entry_price: float = 1.0):
     try:
         from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest
         from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
@@ -152,7 +152,12 @@ def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_li
             )
             
         if len(closing_legs) > 1:
-            limit_price = round(abs(tp_price), 2) if is_credit else -round(abs(tp_price), 2)
+            if is_credit:
+                # Credit spread: close by paying a debit equal to entry_price * (1 - TP_ratio)
+                limit_price = max(0.01, round(entry_price * (1.0 - abs(tp_price)), 2))
+            else:
+                # Debit spread: close by collecting a credit (negative limit value in Alpaca) equal to entry_price * (1 + TP_ratio)
+                limit_price = -round(entry_price * (1.0 + abs(tp_price)), 2)
             order_request = LimitOrderRequest(
                 qty=qty,
                 limit_price=limit_price,
@@ -161,7 +166,13 @@ def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_li
                 legs=closing_legs
             )
         else:
-            limit_price = abs(tp_price)
+            # Single option leg
+            if is_credit:
+                # Short option: close by buying back cheaper at entry_price * (1 - TP_ratio)
+                limit_price = max(0.01, round(entry_price * (1.0 - abs(tp_price)), 2))
+            else:
+                # Long option: close by selling higher at entry_price * (1 + TP_ratio)
+                limit_price = round(entry_price * (1.0 + abs(tp_price)), 2)
             order_request = LimitOrderRequest(
                 symbol=closing_legs[0].symbol,
                 qty=qty,
@@ -170,7 +181,7 @@ def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_li
                 limit_price=round(limit_price, 2)
             )
             
-        print(f"[Auto-TP] Submitting GTC TP order for {ticker} {strategy_name}: qty={qty}, limit_price={limit_price}")
+        print(f"[Auto-TP] Submitting GTC TP order for {ticker} {strategy_name}: qty={qty}, limit_price={limit_price} (entry={entry_price}, target={tp_price})")
         trading_client.submit_order(order_request)
     except Exception as e:
         print(f"[Auto-TP] Failed to submit TP order for {ticker} {strategy_name}: {e}")
@@ -554,7 +565,8 @@ def get_alpaca_positions(username: str, profile: str):
                                         q, 
                                         "Iron Condor", 
                                         is_cr, 
-                                        tp_price_val
+                                        tp_price_val,
+                                        entry_p
                                     )
                                 
                                 for idx in comb:
@@ -663,15 +675,16 @@ def get_alpaca_positions(username: str, profile: str):
                             if matching_trade and "profit_target" in matching_trade:
                                 tp_price_val = float(matching_trade["profit_target"])
                             auto_place_tp_order(
-                                trading_client, 
-                                ticker, 
-                                expiry_yymmdd, 
-                                [{"strike": l["strike"], "type": l["type"], "side": l["side"]} for l in [leg1, leg2]], 
-                                q, 
-                                strat_name, 
-                                is_cr, 
-                                tp_price_val
-                            )
+                                 trading_client, 
+                                 ticker, 
+                                 expiry_yymmdd, 
+                                 [{"strike": l["strike"], "type": l["type"], "side": l["side"]} for l in [leg1, leg2]], 
+                                 q, 
+                                 strat_name, 
+                                 is_cr, 
+                                 tp_price_val,
+                                 entry_p
+                             )
                         
                         used_indices.add(i)
                         used_indices.add(j)
@@ -755,7 +768,8 @@ def get_alpaca_positions(username: str, profile: str):
                             abs(leg_qty), 
                             "Call" if leg["type"] == "CALL" else "Put", 
                             is_cr, 
-                            tp_price_val
+                            tp_price_val,
+                            entry_p
                         )
                     
         for pos in other_positions:
@@ -1497,12 +1511,23 @@ def update_profit_target(trade: UpdateProfitTargetModel):
                 )
             )
 
-        # Check if spread is credit or debit to determine correct sign of limit price
-        # Credits are closed by paying a debit (positive value). Debits are closed by collecting credit (negative limit value in Alpaca)
-        is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower()
-        limit_price = round(abs(trade.tp_price), 2) if is_credit else -round(abs(trade.tp_price), 2)
+        # Try to find matching trade to get entry price
+        entry_price = 1.00
+        is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower() or trade.type in ["Bear Call Spread", "Bull Put Spread"]
+        
+        if "active_trades" in profile_data:
+            symbols_to_close = {format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"]) for leg in order_legs}
+            for t in profile_data["active_trades"]:
+                if t["ticker"] == trade.ticker.upper() and any(l["symbol"] in symbols_to_close for l in t.get("legs", [])):
+                    entry_price = float(t.get("entry_price", 1.00))
+                    break
 
         if len(closing_legs) > 1:
+            if is_credit:
+                limit_price = max(0.01, round(entry_price * (1.0 - abs(trade.tp_price)), 2))
+            else:
+                limit_price = -round(entry_price * (1.0 + abs(trade.tp_price)), 2)
+                
             order_request = LimitOrderRequest(
                 qty=trade.qty,
                 limit_price=limit_price,
@@ -1511,12 +1536,17 @@ def update_profit_target(trade: UpdateProfitTargetModel):
                 legs=closing_legs
             )
         else:
+            if is_credit:
+                limit_price = max(0.01, round(entry_price * (1.0 - abs(trade.tp_price)), 2))
+            else:
+                limit_price = round(entry_price * (1.0 + abs(trade.tp_price)), 2)
+                
             order_request = LimitOrderRequest(
                 symbol=closing_legs[0].symbol,
                 qty=trade.qty,
                 side=closing_legs[0].side,
                 time_in_force=TimeInForce.GTC,
-                limit_price=abs(limit_price)
+                limit_price=round(limit_price, 2)
             )
 
         order = trading_client.submit_order(order_request)
