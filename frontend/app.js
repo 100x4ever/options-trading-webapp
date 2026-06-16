@@ -2236,6 +2236,24 @@ function renderTechnicalChart(ticker, tab) {
 
       currentMainChart.sourceData = { slicedHma, slicedSupertrend };
       updateMainChartLabels(currentMainChart, currentMainChart.lastHoveredIndex !== undefined ? currentMainChart.lastHoveredIndex : -1);
+      
+      // Ensure mobile version and updates also use line style and hide candle elements
+      if (!currentMainChart.options.plugins) {
+        currentMainChart.options.plugins = {};
+      }
+      if (!currentMainChart.options.plugins.legend) {
+        currentMainChart.options.plugins.legend = {};
+      }
+      currentMainChart.options.plugins.legend.labels = {
+        color: "rgba(255,255,255,0.7)",
+        font: { size: 10 },
+        usePointStyle: true,
+        pointStyle: "line",
+        filter: function(item, chart) {
+          return !["Price Body", "Wick Range"].includes(item.text);
+        }
+      };
+      
       currentMainChart.options.scales.y.min = yMin;
       currentMainChart.options.scales.y.max = yMax;
       currentMainChart.update("none");
