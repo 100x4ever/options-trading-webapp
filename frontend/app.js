@@ -2224,10 +2224,18 @@ function initTechnicalCharts() {
     }
     const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
     if (activeTab === "dashboard") {
+      // Pause dashboard refresh if a position is currently expanded on the dashboard to prevent layout jumps
+      if (expandedDashboardPositions && expandedDashboardPositions.size > 0) {
+        return;
+      }
       renderTechnicalChart("QQQ", "dashboard");
       renderDashboard();
       renderPositions();
     } else if (activeTab === "positions") {
+      // Pause positions tab refresh if a position is currently expanded to prevent detail view collapsing/resetting
+      if (expandedPositions && expandedPositions.size > 0) {
+        return;
+      }
       renderPositions();
     } else if (activeTab === "chart") {
       const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
