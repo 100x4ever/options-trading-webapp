@@ -548,6 +548,7 @@ function showHoverPanel(title, htmlContent) {
 
 // Data Rendering (Dashboard Stats, Position Matrix, Options Chain)
 function renderDashboard() {
+  if (!currentUser || !state.activeProfile) return;
   fetch(`/api/account?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
   .then(res => res.json())
   .then(accountData => {
@@ -695,6 +696,8 @@ function renderDashboard() {
 function renderPositions() {
   const tbody = document.getElementById("positionsTableBody");
   if (!tbody) return;
+
+  if (!currentUser || !state.activeProfile) return;
 
   // Fetch open orders first to cross reference Take Profit status
   fetch(`/api/positions/orders?username=${encodeURIComponent(currentUser)}&profile=${encodeURIComponent(state.activeProfile)}`)
@@ -2793,6 +2796,10 @@ window.toggleTablePosition = function(posKey) {
 };
 
 function renderTugOfWarMeter(pos) {
+  return '';
+}
+
+function _unused_renderTugOfWarMeter(pos) {
   console.log("Position data for meter:", pos);
   
   // Robust fallback logic in case keys are missing or formatted differently
