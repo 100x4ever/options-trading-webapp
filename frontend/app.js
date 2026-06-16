@@ -710,10 +710,17 @@ function renderPositions() {
       }
       
       // Save focused element ID, cursor selection, and scroll positions to prevent jumpiness on mobile refresh
-      const activeElId = document.activeElement ? document.activeElement.id : null;
-      const activeElVal = activeElId && document.activeElement.tagName === 'INPUT' ? document.activeElement.value : null;
-      const activeElSelStart = activeElId && document.activeElement.tagName === 'INPUT' ? document.activeElement.selectionStart : null;
-      const activeElSelEnd = activeElId && document.activeElement.tagName === 'INPUT' ? document.activeElement.selectionEnd : null;
+      const activeEl = document.activeElement;
+      const activeElId = activeEl ? activeEl.id : null;
+      const activeElVal = activeEl && activeEl.tagName === 'INPUT' ? activeEl.value : null;
+      let activeElSelStart = null;
+      let activeElSelEnd = null;
+      if (activeEl && activeEl.tagName === 'INPUT') {
+        try {
+          activeElSelStart = activeEl.selectionStart;
+          activeElSelEnd = activeEl.selectionEnd;
+        } catch (e) {}
+      }
       
       const scrollStates = {};
       const inputs = tbody.querySelectorAll('input[type="number"]');
@@ -789,9 +796,9 @@ function renderPositions() {
           <tr class="position-details-row" style="background: rgba(255, 255, 255, 0.02); backdrop-filter: blur(5px);">
             <td colspan="11" style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,0.05);">
               <div style="display: flex; flex-direction: column; gap: 16px; max-width: 600px;">
-                <div style="display: flex; gap: 40px; align-items: center;">
+                <div style="display: flex; gap: 16px 40px; align-items: center; flex-wrap: wrap;">
                   <span style="font-size: 11px; font-weight: 700; color: var(--accent-neutral); text-transform: uppercase; letter-spacing: 0.5px;">Combined Position Greeks:</span>
-                  <div style="display: flex; gap: 24px;">
+                  <div style="display: flex; gap: 16px 24px; flex-wrap: wrap;">
                     <div style="font-size: 13px;">
                       <span style="color: var(--text-muted); font-size: 11px; margin-right: 6px;">Delta:</span>
                       <strong>${pos.delta}</strong>
