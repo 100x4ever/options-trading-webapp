@@ -2198,12 +2198,19 @@ function renderTechnicalChart(ticker, tab) {
     let minLows = Math.min(...slicedLows);
     let maxHighs = Math.max(...slicedHighs);
 
-    // Expand bounds if we have breakeven lines to show
+    // Expand bounds if we have breakeven lines to show, but constrain expansion to prevent chart crash/extreme flattening
     if (allBreakevenPrices.length > 0) {
+      const currentRange = maxHighs - minLows || 1.0;
+      const maxAllowedExpansion = currentRange * 0.20; // limit expansion to 20% of current high/low range
+      
       const minBE = Math.min(...allBreakevenPrices);
       const maxBE = Math.max(...allBreakevenPrices);
-      minLows = Math.min(minLows, minBE);
-      maxHighs = Math.max(maxHighs, maxBE);
+      
+      const targetMin = Math.max(minLows - maxAllowedExpansion, minBE);
+      const targetMax = Math.min(maxHighs + maxAllowedExpansion, maxBE);
+      
+      minLows = Math.min(minLows, targetMin);
+      maxHighs = Math.max(maxHighs, targetMax);
     }
 
     const yMin = Math.floor(minLows - ((maxHighs - minLows) * 0.05 || 2.0));

@@ -159,35 +159,34 @@
           </div>
         </div>
       </section>
-+
-+      <!-- TAB: FULL CHART -->
-+      <section class="tab-content" id="tab-chart">
-+        <header class="tab-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-+          <div>
-+            <h1>Full Ticker Analytics</h1>
-+            <p>High-resolution candlestick feeds and indicator analytics overlays.</p>
-+          </div>
-+          <div style="margin-top: 10px;">
-+            <input type="text" id="fullChartTicker" value="QQQ" placeholder="AAPL, QQQ, TSLA..." style="width: 140px; padding: 10px 16px; font-size: 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: var(--text-main); font-weight: 600; text-transform: uppercase;">
-+          </div>
-+        </header>
-+
-+        <!-- FULL TECHNICAL CHART CARD -->
-+        <div class="glass-card chart-card" style="margin-top: 20px; min-height: 600px; display: flex; flex-direction: column;">
-+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-+            <div>
-+              <h3 id="fullChartTitle"><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> QQQ Full Chart (1h Candles, 1 Week)</h3>
-+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Overlay: 30 HMA (Hull Moving Average), Supertrend (12, 2.2). Oscillator: Stochastic (14, 4%D & 40, 4%D).</p>
-+            </div>
-+          </div>
-+          <div class="chart-container main-tech-chart" style="flex: 2; min-height: 400px; height: auto;">
-+            <canvas id="fullTechnicalChartCanvas"></canvas>
-+          </div>
-+          <div class="chart-container stoch-tech-chart" style="flex: 1; min-height: 150px; height: auto; margin-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 20px;">
-+            <canvas id="fullStochasticChartCanvas"></canvas>
-+          </div>
-+        </div>
-+      </section>
+      <!-- TAB: FULL CHART -->
+      <section class="tab-content" id="tab-chart">
+        <header class="tab-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+          <div>
+            <h1>Full Ticker Analytics</h1>
+            <p>High-resolution candlestick feeds and indicator analytics overlays.</p>
+          </div>
+          <div style="margin-top: 10px;">
+            <input type="text" id="fullChartTicker" value="QQQ" placeholder="AAPL, QQQ, TSLA..." style="width: 140px; padding: 10px 16px; font-size: 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; color: var(--text-main); font-weight: 600; text-transform: uppercase;">
+          </div>
+        </header>
+
+        <!-- FULL TECHNICAL CHART CARD -->
+        <div class="glass-card chart-card" style="margin-top: 20px; min-height: 600px; display: flex; flex-direction: column;">
+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
+              <h3 id="fullChartTitle"><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> QQQ Full Chart (1h Candles, 1 Week)</h3>
+              <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Overlay: 30 HMA (Hull Moving Average), Supertrend (12, 2.2). Oscillator: Stochastic (14, 4%D & 40, 4%D).</p>
+            </div>
+          </div>
+          <div class="chart-container main-tech-chart" style="flex: 2; min-height: 400px; height: auto;">
+            <canvas id="fullTechnicalChartCanvas"></canvas>
+          </div>
+          <div class="chart-container stoch-tech-chart" style="flex: 1; min-height: 150px; height: auto; margin-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 20px;">
+            <canvas id="fullStochasticChartCanvas"></canvas>
+          </div>
+        </div>
+      </section>
 
       <!-- TAB: STRATEGY WIZARD -->
       <section class="tab-content" id="tab-wizard">
