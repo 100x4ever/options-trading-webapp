@@ -2317,7 +2317,11 @@ function renderTechnicalChart(ticker, tab) {
                 color: "rgba(255,255,255,0.7)",
                 font: { size: 10 },
                 usePointStyle: true,
-                pointStyle: "line"
+                pointStyle: "line",
+                filter: function(item, chart) {
+                  // Hide Price Body and Wick Range from the legend display
+                  return !["Price Body", "Wick Range"].includes(item.text);
+                }
               }
             }
           },
