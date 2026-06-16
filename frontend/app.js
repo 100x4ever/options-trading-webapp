@@ -2218,16 +2218,20 @@ function initTechnicalCharts() {
 
   // Auto-refresh QQQ Dashboard chart, account balance, and positions every 5 seconds for close to live data
   setInterval(() => {
+    // Skip auto-refresh if the user is actively typing in an input or selecting options to avoid layout flashes/interruptions
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA')) {
+      return;
+    }
     const activeTab = document.querySelector(".nav-btn.active")?.getAttribute("data-tab");
-    if (activeTab === "dashboard" || activeTab === "positions" || activeTab === "chart") {
-      if (activeTab === "dashboard") {
-        renderTechnicalChart("QQQ", "dashboard");
-      } else if (activeTab === "chart") {
-        const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
-        renderTechnicalChart(ticker, "chart");
-      }
+    if (activeTab === "dashboard") {
+      renderTechnicalChart("QQQ", "dashboard");
       renderDashboard();
       renderPositions();
+    } else if (activeTab === "positions") {
+      renderPositions();
+    } else if (activeTab === "chart") {
+      const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
+      renderTechnicalChart(ticker, "chart");
     }
   }, 5000);
 }
