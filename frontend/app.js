@@ -2338,19 +2338,69 @@ function renderTechnicalChart(ticker, tab) {
     }
     
     const isMobile = window.innerWidth <= 900;
-    const sliceCount = isMobile ? 20 : 40;
-    const slicedTimestamps = data.timestamps.slice(-sliceCount);
-    const slicedCloses = data.closes.slice(-sliceCount);
-    const slicedOpens = data.opens.slice(-sliceCount);
-    const slicedHighs = data.highs.slice(-sliceCount);
-    const slicedLows = data.lows.slice(-sliceCount);
-    const slicedVwap = (data.vwap || []).slice(-sliceCount);
-    const slicedHma = (data.hma30 || []).slice(-sliceCount);
-    const slicedSupertrend = (data.supertrend || []).slice(-sliceCount);
-    const slicedStoch14 = (data.stoch14_4d || []).slice(-sliceCount);
-    const slicedStoch40 = (data.stoch40_4d || []).slice(-sliceCount);
-    const slicedStoch60 = (data.stoch60_10_10d || []).slice(-sliceCount);
-    const slicedVolumes = (data.volumes || []).slice(-sliceCount);
+    
+    // Group timestamps by date (in US Eastern time)
+    const getEstDateString = (ts) => {
+      const d = new Date((ts - 5 * 3600) * 1000);
+      return d.getUTCFullYear() + "-" + (d.getUTCMonth() + 1) + "-" + d.getUTCDate();
+    };
+
+    let sliceStartIdx = 0;
+    if (interval === "5m") {
+      if (data.timestamps.length > 0) {
+        const lastDay = getEstDateString(data.timestamps[data.timestamps.length - 1]);
+        sliceStartIdx = data.timestamps.findIndex(ts => getEstDateString(ts) === lastDay);
+        if (sliceStartIdx === -1) sliceStartIdx = Math.max(0, data.timestamps.length - 78);
+      }
+    } else if (interval === "15m") {
+      if (data.timestamps.length > 0) {
+        const uniqueDays = [];
+        for (let idx = data.timestamps.length - 1; idx >= 0; idx--) {
+          const day = getEstDateString(data.timestamps[idx]);
+          if (!uniqueDays.includes(day)) {
+            uniqueDays.push(day);
+          }
+          if (uniqueDays.length > 2) {
+            sliceStartIdx = idx + 1;
+            break;
+          }
+        }
+      }
+    } else if (interval === "1h") {
+      if (data.timestamps.length > 0) {
+        const uniqueDays = [];
+        for (let idx = data.timestamps.length - 1; idx >= 0; idx--) {
+          const day = getEstDateString(data.timestamps[idx]);
+          if (!uniqueDays.includes(day)) {
+            uniqueDays.push(day);
+          }
+          if (uniqueDays.length > 5) {
+            sliceStartIdx = idx + 1;
+            break;
+          }
+        }
+      }
+    } else if (interval === "1d") {
+      sliceStartIdx = Math.max(0, data.timestamps.length - 20);
+    } else {
+      sliceStartIdx = Math.max(0, data.timestamps.length - (isMobile ? 20 : 40));
+    }
+    
+    // Safety guard to ensure we have at least 5 candles
+    sliceStartIdx = Math.min(sliceStartIdx, Math.max(0, data.timestamps.length - 5));
+
+    const slicedTimestamps = data.timestamps.slice(sliceStartIdx);
+    const slicedCloses = data.closes.slice(sliceStartIdx);
+    const slicedOpens = data.opens.slice(sliceStartIdx);
+    const slicedHighs = data.highs.slice(sliceStartIdx);
+    const slicedLows = data.lows.slice(sliceStartIdx);
+    const slicedVwap = (data.vwap || []).slice(sliceStartIdx);
+    const slicedHma = (data.hma30 || []).slice(sliceStartIdx);
+    const slicedSupertrend = (data.supertrend || []).slice(sliceStartIdx);
+    const slicedStoch14 = (data.stoch14_4d || []).slice(sliceStartIdx);
+    const slicedStoch40 = (data.stoch40_4d || []).slice(sliceStartIdx);
+    const slicedStoch60 = (data.stoch60_10_10d || []).slice(sliceStartIdx);
+    const slicedVolumes = (data.volumes || []).slice(sliceStartIdx);
 
     const labels = slicedTimestamps.map(ts => {
       const d = new Date(ts * 1000);
