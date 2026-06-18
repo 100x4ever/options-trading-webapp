@@ -2259,9 +2259,9 @@ function updateStochChartLabels(chart, index) {
   const stoch14Val = chart.sourceData.slicedStoch14[idx];
   const stoch40Val = chart.sourceData.slicedStoch40[idx];
   const stoch60Val = chart.sourceData.slicedStoch60[idx];
-  chart.data.datasets[1].label = `Stoch (14, 4 %D): ${stoch14Val !== null && stoch14Val !== undefined ? parseFloat(stoch14Val).toFixed(2) : 'N/A'}`;
-  chart.data.datasets[2].label = `Stoch (40, 4 %D): ${stoch40Val !== null && stoch40Val !== undefined ? parseFloat(stoch40Val).toFixed(2) : 'N/A'}`;
-  chart.data.datasets[3].label = `Stoch (60, 10, 10 %D): ${stoch60Val !== null && stoch60Val !== undefined ? parseFloat(stoch60Val).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[1].label = `Stoch 14: ${stoch14Val !== null && stoch14Val !== undefined ? parseFloat(stoch14Val).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[2].label = `Stoch 40: ${stoch40Val !== null && stoch40Val !== undefined ? parseFloat(stoch40Val).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[3].label = `Stoch 60: ${stoch60Val !== null && stoch60Val !== undefined ? parseFloat(stoch60Val).toFixed(2) : 'N/A'}`;
 }
 
 function renderTechnicalChart(ticker, tab) {
@@ -2532,7 +2532,7 @@ function renderTechnicalChart(ticker, tab) {
                 usePointStyle: true,
                 pointStyle: "line",
                 filter: function(item) {
-                  return !["Price Body", "Wick Range"].includes(item.text);
+                  return !["Price Body", "Wick Range", "Position Entry"].includes(item.text);
                 }
               }
             }
@@ -2588,7 +2588,7 @@ function renderTechnicalChart(ticker, tab) {
       currentStochChart.sourceData = { slicedStoch14, slicedStoch40, slicedStoch60 };
       updateStochChartLabels(currentStochChart, currentStochChart.lastHoveredIndex !== undefined ? currentStochChart.lastHoveredIndex : -1);
       
-      currentStochChart.options.scales.yVolume.max = Math.max(...slicedVolumes) * 5;
+      currentStochChart.options.scales.yVolume.max = Math.max(...slicedVolumes) * 2.5;
       currentStochChart.update("none");
     } else {
       const newStochChart = new Chart(ctxStoch, {
@@ -2608,7 +2608,7 @@ function renderTechnicalChart(ticker, tab) {
             },
             {
               type: "line",
-              label: "Stoch (14, 4 %D)",
+              label: "Stoch 14",
               data: slicedStoch14,
               borderColor: "#3b82f6",
               borderWidth: 1.5,
@@ -2619,7 +2619,7 @@ function renderTechnicalChart(ticker, tab) {
             },
             {
               type: "line",
-              label: "Stoch (40, 4 %D)",
+              label: "Stoch 40",
               data: slicedStoch40,
               borderColor: "#ec4899",
               borderWidth: 1.5,
@@ -2630,7 +2630,7 @@ function renderTechnicalChart(ticker, tab) {
             },
             {
               type: "line",
-              label: "Stoch (60, 10, 10 %D)",
+              label: "Stoch 60",
               data: slicedStoch60,
               borderColor: "#10b981",
               borderWidth: 1.8,
@@ -2713,7 +2713,7 @@ function renderTechnicalChart(ticker, tab) {
               type: 'linear',
               position: 'right',
               min: 0,
-              max: Math.max(...slicedVolumes) * 5,
+              max: Math.max(...slicedVolumes) * 2.5,
               grid: { display: false },
               ticks: { display: false }
             }
