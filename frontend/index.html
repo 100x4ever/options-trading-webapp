@@ -170,9 +170,17 @@
 
         <!-- FULL TECHNICAL CHART CARD -->
         <div class="glass-card chart-card" style="margin-top: 20px; min-height: 600px; display: flex; flex-direction: column;">
-          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div class="chart-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
             <div>
               <h3 id="fullChartTitle"><i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> QQQ Full Chart (1h Candles, 1 Week)</h3>
+            </div>
+            <div class="timeframe-selector" id="fullChartTimeframeSelector" style="display: flex; gap: 4px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+              <button class="tf-btn" data-interval="5m" data-range="5d" style="background: none; border: none; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-radius: 6px; transition: all 0.2s;">5m</button>
+              <button class="tf-btn" data-interval="15m" data-range="1mo" style="background: none; border: none; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-radius: 6px; transition: all 0.2s;">15m</button>
+              <button class="tf-btn active" data-interval="1h" data-range="1mo" style="background: var(--accent-neutral); border: none; padding: 6px 12px; font-size: 11px; font-weight: 600; color: #000000; cursor: pointer; border-radius: 6px; transition: all 0.2s;">1h</button>
+              <button class="tf-btn" data-interval="1d" data-range="1y" style="background: none; border: none; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-radius: 6px; transition: all 0.2s;">1d</button>
+              <button class="tf-btn" data-interval="1wk" data-range="5y" style="background: none; border: none; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-radius: 6px; transition: all 0.2s;">1w</button>
+              <button class="tf-btn" data-interval="1mo" data-range="max" style="background: none; border: none; padding: 6px 12px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; border-radius: 6px; transition: all 0.2s;">1m</button>
             </div>
           </div>
           <div class="chart-container main-tech-chart" style="flex: 2; min-height: 400px; height: auto;">

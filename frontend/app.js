@@ -2195,6 +2195,31 @@ function initTechnicalCharts() {
       setTimeout(() => renderTechnicalChart(ticker, "chart"), 100);
     });
   }
+
+  // Bind Timeframe selector click events for the Full Chart tab
+  const tfSelector = document.getElementById("fullChartTimeframeSelector");
+  if (tfSelector) {
+    const buttons = tfSelector.querySelectorAll(".tf-btn");
+    buttons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        buttons.forEach(b => {
+          b.classList.remove("active");
+          b.style.background = "none";
+          b.style.color = "var(--text-secondary)";
+        });
+        
+        btn.classList.add("active");
+        btn.style.background = "var(--accent-neutral)";
+        btn.style.color = "#000000";
+        
+        window.fullChartInterval = btn.getAttribute("data-interval");
+        window.fullChartRange = btn.getAttribute("data-range");
+        
+        const ticker = fullTickerInput ? fullTickerInput.value.trim().toUpperCase() : "QQQ";
+        renderTechnicalChart(ticker, "chart");
+      });
+    });
+  }
   
   // Reload dashboard charts on dashboard tab click
   const dashboardNavBtn = document.getElementById("nav-dashboard");
@@ -2285,7 +2310,13 @@ function renderTechnicalChart(ticker, tab) {
   const stochCanvas = document.getElementById(stochCanvasId);
   if (!mainCanvas || !stochCanvas) return;
   
-  fetch(`/api/chart/technical?ticker=${encodeURIComponent(ticker)}`)
+  let interval = "1h";
+  let range = "1mo";
+  if (isFull) {
+    interval = window.fullChartInterval || "1h";
+    range = window.fullChartRange || "1mo";
+  }
+  fetch(`/api/chart/technical?ticker=${encodeURIComponent(ticker)}&interval=${interval}&range=${range}`)
   .then(res => res.json())
   .then(data => {
     if (isDash) {
@@ -2299,7 +2330,9 @@ function renderTechnicalChart(ticker, tab) {
       const headerTitle = document.getElementById("fullChartTitle");
       if (headerTitle && data.closes && data.closes.length > 0) {
         const lastPrice = data.closes[data.closes.length - 1];
-        headerTitle.innerHTML = `<i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> ${ticker.toUpperCase()} Full Chart (1h Candles, 1 Week) <span style="margin-left: 15px; color: var(--accent-neutral); font-weight: 700;">$${parseFloat(lastPrice).toFixed(2)}</span>`;
+        const tfLabelMap = { "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1d", "1wk": "1w", "1mo": "1m" };
+        const currentTfLabel = tfLabelMap[interval] || interval;
+        headerTitle.innerHTML = `<i data-lucide="line-chart" style="color: var(--accent-neutral); margin-right: 8px; vertical-align: middle;"></i> ${ticker.toUpperCase()} Full Chart (${currentTfLabel} Candles) <span style="margin-left: 15px; color: var(--accent-neutral); font-weight: 700;">$${parseFloat(lastPrice).toFixed(2)}</span>`;
         lucide.createIcons();
       }
     }
