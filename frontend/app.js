@@ -2245,10 +2245,12 @@ function debounce(func, wait) {
 function updateMainChartLabels(chart, index) {
   if (!chart.sourceData) return;
   const idx = index >= 0 ? index : chart.sourceData.slicedHma.length - 1;
+  const vwapVal = chart.sourceData.slicedVwap[idx];
   const hmaVal = chart.sourceData.slicedHma[idx];
   const supertrendVal = chart.sourceData.slicedSupertrend[idx];
-  chart.data.datasets[2].label = `30 HMA: ${hmaVal !== null && hmaVal !== undefined ? '$' + parseFloat(hmaVal).toFixed(2) : 'N/A'}`;
-  chart.data.datasets[3].label = `Supertrend: ${supertrendVal !== null && supertrendVal !== undefined ? '$' + parseFloat(supertrendVal).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[2].label = `VWAP: ${vwapVal !== null && vwapVal !== undefined ? '$' + parseFloat(vwapVal).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[3].label = `30 HMA: ${hmaVal !== null && hmaVal !== undefined ? '$' + parseFloat(hmaVal).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[4].label = `Supertrend: ${supertrendVal !== null && supertrendVal !== undefined ? '$' + parseFloat(supertrendVal).toFixed(2) : 'N/A'}`;
 }
 
 function updateStochChartLabels(chart, index) {
@@ -2256,8 +2258,10 @@ function updateStochChartLabels(chart, index) {
   const idx = index >= 0 ? index : chart.sourceData.slicedStoch14.length - 1;
   const stoch14Val = chart.sourceData.slicedStoch14[idx];
   const stoch40Val = chart.sourceData.slicedStoch40[idx];
-  chart.data.datasets[0].label = `Stoch (14, 4 %D): ${stoch14Val !== null && stoch14Val !== undefined ? parseFloat(stoch14Val).toFixed(2) : 'N/A'}`;
-  chart.data.datasets[1].label = `Stoch (40, 4 %D): ${stoch40Val !== null && stoch40Val !== undefined ? parseFloat(stoch40Val).toFixed(2) : 'N/A'}`;
+  const stoch60Val = chart.sourceData.slicedStoch60[idx];
+  chart.data.datasets[1].label = `Stoch (14, 4 %D): ${stoch14Val !== null && stoch14Val !== undefined ? parseFloat(stoch14Val).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[2].label = `Stoch (40, 4 %D): ${stoch40Val !== null && stoch40Val !== undefined ? parseFloat(stoch40Val).toFixed(2) : 'N/A'}`;
+  chart.data.datasets[3].label = `Stoch (60, 10, 10 %D): ${stoch60Val !== null && stoch60Val !== undefined ? parseFloat(stoch60Val).toFixed(2) : 'N/A'}`;
 }
 
 function renderTechnicalChart(ticker, tab) {
@@ -2307,33 +2311,27 @@ function renderTechnicalChart(ticker, tab) {
     const slicedOpens = data.opens.slice(-sliceCount);
     const slicedHighs = data.highs.slice(-sliceCount);
     const slicedLows = data.lows.slice(-sliceCount);
-    const slicedHma = data.hma30.slice(-sliceCount);
-    const slicedSupertrend = data.supertrend.slice(-sliceCount);
-    const slicedSupertrendDir = data.supertrendDirection.slice(-sliceCount);
-    const slicedStoch14 = data.stoch14_4d.slice(-sliceCount);
-    const slicedStoch40 = data.stoch40_4d.slice(-sliceCount);
+    const slicedVwap = (data.vwap || []).slice(-sliceCount);
+    const slicedHma = (data.hma30 || []).slice(-sliceCount);
+    const slicedSupertrend = (data.supertrend || []).slice(-sliceCount);
+    const slicedStoch14 = (data.stoch14_4d || []).slice(-sliceCount);
+    const slicedStoch40 = (data.stoch40_4d || []).slice(-sliceCount);
+    const slicedStoch60 = (data.stoch60_10_10d || []).slice(-sliceCount);
+    const slicedVolumes = (data.volumes || []).slice(-sliceCount);
 
     const labels = slicedTimestamps.map(ts => {
       const d = new Date(ts * 1000);
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
     });
     
-    const supertrendSegmentColor = (ctx) => {
-      if (ctx.type === 'section') return;
-      const index = ctx.p1DataIndex;
-      const dir = slicedSupertrendDir[index];
-      return dir === 1 ? "#00e676" : "#ff2a5f";
-    };
-    
-    const computedStyle = getComputedStyle(document.documentElement);
-    const colorPositive = computedStyle.getPropertyValue('--accent-positive').trim() || "#00e676";
-    const colorNegative = computedStyle.getPropertyValue('--accent-negative').trim() || "#ff2a5f";
-
-    const colors = slicedCloses.map((c, i) => c >= slicedOpens[i] ? colorPositive : colorNegative);
+    // TradingView Candlestick Colors
+    const tvGreen = "#089981";
+    const tvRed = "#f23645";
+    const candleColors = slicedCloses.map((c, i) => c >= slicedOpens[i] ? tvGreen : tvRed);
     const wicksData = slicedCloses.map((c, i) => [slicedLows[i], slicedHighs[i]]);
     const bodiesData = slicedCloses.map((c, i) => [slicedOpens[i], c]);
 
-    // Gather breakevens for the current ticker from cache
+    // Gather positions and breakevens
     const activeTickerPositions = (window.activePositionsCache || []).filter(
       pos => pos.ticker && pos.ticker.toUpperCase() === ticker.toUpperCase()
     );
@@ -2377,24 +2375,43 @@ function renderTechnicalChart(ticker, tab) {
       }
     });
 
+    // Mark Entry Candle marker (scatter plot triangle below the entry candle)
+    const entryMarkers = new Array(labels.length).fill(null);
+    activeTickerPositions.forEach(pos => {
+      if (pos.entry_timestamp) {
+        const entryIdx = slicedTimestamps.findIndex(barTs => Math.abs(barTs - pos.entry_timestamp) < 3600);
+        if (entryIdx !== -1) {
+          const range = Math.max(...slicedHighs) - Math.min(...slicedLows) || 10.0;
+          entryMarkers[entryIdx] = slicedLows[entryIdx] - range * 0.08;
+        }
+      }
+    });
+    
+    const entryDataset = {
+      type: "scatter",
+      label: "Position Entry",
+      data: entryMarkers,
+      pointStyle: "triangle",
+      pointRadius: 10,
+      pointBackgroundColor: "#00e676",
+      pointBorderColor: "#ffffff",
+      pointBorderWidth: 1.5,
+      order: 0
+    };
+
     const ctxMain = mainCanvas.getContext("2d");
     let currentMainChart = isWiz ? wizTechChart : (isDash ? dashTechChart : (isFull ? fullTechChart : posTechChart));
 
-    // Calculate baseline bounds based on high/low wicks
     let minLows = Math.min(...slicedLows);
     let maxHighs = Math.max(...slicedHighs);
 
-    // Expand bounds if we have breakeven lines to show, but constrain expansion to prevent chart crash/extreme flattening
     if (allBreakevenPrices.length > 0) {
       const currentRange = maxHighs - minLows || 1.0;
-      const maxAllowedExpansion = currentRange * 0.20; // limit expansion to 20% of current high/low range
-      
+      const maxAllowedExpansion = currentRange * 0.20;
       const minBE = Math.min(...allBreakevenPrices);
       const maxBE = Math.max(...allBreakevenPrices);
-      
       const targetMin = Math.max(minLows - maxAllowedExpansion, minBE);
       const targetMax = Math.min(maxHighs + maxAllowedExpansion, maxBE);
-      
       minLows = Math.min(minLows, targetMin);
       maxHighs = Math.max(maxHighs, targetMax);
     }
@@ -2405,40 +2422,25 @@ function renderTechnicalChart(ticker, tab) {
     if (currentMainChart) {
       currentMainChart.data.labels = labels;
       currentMainChart.data.datasets[0].data = bodiesData;
-      currentMainChart.data.datasets[0].backgroundColor = colors;
-      currentMainChart.data.datasets[0].borderColor = colors;
-      currentMainChart.data.datasets[1].data = wicksData;
-      currentMainChart.data.datasets[1].backgroundColor = colors;
-      currentMainChart.data.datasets[1].borderColor = colors;
-      currentMainChart.data.datasets[2].data = slicedHma;
-      currentMainChart.data.datasets[3].data = slicedSupertrend;
+      currentMainChart.data.datasets[0].backgroundColor = candleColors;
+      currentMainChart.data.datasets[0].borderColor = candleColors;
       
-      // Clean up old breakeven datasets if any existed
-      currentMainChart.data.datasets = currentMainChart.data.datasets.slice(0, 4);
-      // Append the new ones
+      currentMainChart.data.datasets[1].data = wicksData;
+      currentMainChart.data.datasets[1].backgroundColor = candleColors;
+      currentMainChart.data.datasets[1].borderColor = candleColors;
+      
+      currentMainChart.data.datasets[2].data = slicedVwap;
+      currentMainChart.data.datasets[3].data = slicedHma;
+      currentMainChart.data.datasets[4].data = slicedSupertrend;
+      currentMainChart.data.datasets[5].data = entryMarkers;
+      
+      currentMainChart.data.datasets = currentMainChart.data.datasets.slice(0, 6);
       breakevenDatasets.forEach(ds => {
         currentMainChart.data.datasets.push(ds);
       });
 
-      currentMainChart.sourceData = { slicedHma, slicedSupertrend };
+      currentMainChart.sourceData = { slicedVwap, slicedHma, slicedSupertrend };
       updateMainChartLabels(currentMainChart, currentMainChart.lastHoveredIndex !== undefined ? currentMainChart.lastHoveredIndex : -1);
-      
-      // Ensure mobile version and updates also use line style and hide candle elements
-      if (!currentMainChart.options.plugins) {
-        currentMainChart.options.plugins = {};
-      }
-      if (!currentMainChart.options.plugins.legend) {
-        currentMainChart.options.plugins.legend = {};
-      }
-      currentMainChart.options.plugins.legend.labels = {
-        color: "rgba(255,255,255,0.7)",
-        font: { size: 10 },
-        usePointStyle: true,
-        pointStyle: "line",
-        filter: function(item, chart) {
-          return !["Price Body", "Wick Range"].includes(item.text);
-        }
-      };
       
       currentMainChart.options.scales.y.min = yMin;
       currentMainChart.options.scales.y.max = yMax;
@@ -2449,50 +2451,57 @@ function renderTechnicalChart(ticker, tab) {
           type: "bar",
           label: "Price Body",
           data: bodiesData,
-          backgroundColor: colors,
-          borderColor: colors,
+          backgroundColor: candleColors,
+          borderColor: candleColors,
           borderWidth: 1,
-          barThickness: 10,
+          barThickness: isMobile ? 6 : 10,
           grouped: false,
-          order: 2
+          order: 3
         },
         {
           type: "bar",
           label: "Wick Range",
           data: wicksData,
-          backgroundColor: colors,
-          borderColor: colors,
+          backgroundColor: candleColors,
+          borderColor: candleColors,
           borderWidth: 1,
-          barThickness: 2,
+          barThickness: 1.5,
           grouped: false,
-          order: 3
+          order: 4
+        },
+        {
+          type: "line",
+          label: "VWAP",
+          data: slicedVwap,
+          borderColor: "#ff7000",
+          borderWidth: 1.8,
+          pointRadius: 0,
+          tension: 0.1,
+          order: 1
         },
         {
           type: "line",
           label: "30 HMA",
           data: slicedHma,
-          borderColor: "#ffb800",
+          borderColor: "#ffd000",
           borderWidth: 1.8,
           pointRadius: 0,
-          borderDash: [5, 4],
           tension: 0.2,
-          order: 1
+          order: 2
         },
         {
           type: "line",
           label: "Supertrend",
           data: slicedSupertrend,
-          borderWidth: 2.5,
+          borderColor: "#ffffff",
+          borderWidth: 2,
           pointRadius: 0,
-          segment: {
-            borderColor: supertrendSegmentColor
-          },
           tension: 0.1,
           order: 0
-        }
+        },
+        entryDataset
       ];
 
-      // Append active breakeven datasets
       breakevenDatasets.forEach(ds => {
         initialDatasets.push(ds);
       });
@@ -2522,8 +2531,7 @@ function renderTechnicalChart(ticker, tab) {
                 font: { size: 10 },
                 usePointStyle: true,
                 pointStyle: "line",
-                filter: function(item, chart) {
-                  // Hide Price Body and Wick Range from the legend display
+                filter: function(item) {
                   return !["Price Body", "Wick Range"].includes(item.text);
                 }
               }
@@ -2532,7 +2540,7 @@ function renderTechnicalChart(ticker, tab) {
           scales: {
             x: { 
               stacked: true,
-              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              grid: { color: "rgba(255, 255, 255, 0.05)" }, 
               ticks: { 
                 color: "rgba(255,255,255,0.5)", 
                 font: { size: 9 },
@@ -2542,7 +2550,7 @@ function renderTechnicalChart(ticker, tab) {
               } 
             },
             y: { 
-              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              grid: { color: "rgba(255, 255, 255, 0.05)" }, 
               ticks: { color: "rgba(255,255,255,0.5)" },
               min: yMin,
               max: yMax
@@ -2551,7 +2559,7 @@ function renderTechnicalChart(ticker, tab) {
         }
       });
       
-      newMainChart.sourceData = { slicedHma, slicedSupertrend };
+      newMainChart.sourceData = { slicedVwap, slicedHma, slicedSupertrend };
       updateMainChartLabels(newMainChart, -1);
       newMainChart.update("none");
 
@@ -2566,32 +2574,94 @@ function renderTechnicalChart(ticker, tab) {
     
     if (currentStochChart) {
       currentStochChart.data.labels = labels;
-      currentStochChart.data.datasets[0].data = slicedStoch14;
-      currentStochChart.data.datasets[1].data = slicedStoch40;
-      currentStochChart.sourceData = { slicedStoch14, slicedStoch40 };
+      currentStochChart.data.datasets[0].data = slicedVolumes;
+      currentStochChart.data.datasets[0].backgroundColor = candleColors;
+      currentStochChart.data.datasets[0].borderColor = candleColors;
+      
+      currentStochChart.data.datasets[1].data = slicedStoch14;
+      currentStochChart.data.datasets[2].data = slicedStoch40;
+      currentStochChart.data.datasets[3].data = slicedStoch60;
+      
+      currentStochChart.data.datasets[4].data = new Array(labels.length).fill(20);
+      currentStochChart.data.datasets[5].data = new Array(labels.length).fill(80);
+      
+      currentStochChart.sourceData = { slicedStoch14, slicedStoch40, slicedStoch60 };
       updateStochChartLabels(currentStochChart, currentStochChart.lastHoveredIndex !== undefined ? currentStochChart.lastHoveredIndex : -1);
+      
+      currentStochChart.options.scales.yVolume.max = Math.max(...slicedVolumes) * 5;
       currentStochChart.update("none");
     } else {
       const newStochChart = new Chart(ctxStoch, {
-        type: "line",
+        type: "bar",
         data: {
           labels: labels,
           datasets: [
             {
-              label: "Stoch (14, 4 %D)",
-              data: slicedStoch14,
-              borderColor: colorNegative,
-              borderWidth: 1.5,
-              pointRadius: 0,
-              tension: 0.2
+              type: "bar",
+              label: "Volume",
+              data: slicedVolumes,
+              backgroundColor: candleColors,
+              borderColor: candleColors,
+              yAxisID: "yVolume",
+              barThickness: isMobile ? 5 : 8,
+              order: 4
             },
             {
-              label: "Stoch (40, 4 %D)",
-              data: slicedStoch40,
-              borderColor: "#7000ff",
+              type: "line",
+              label: "Stoch (14, 4 %D)",
+              data: slicedStoch14,
+              borderColor: "#3b82f6",
               borderWidth: 1.5,
               pointRadius: 0,
-              tension: 0.2
+              tension: 0.2,
+              yAxisID: "yStochastic",
+              order: 1
+            },
+            {
+              type: "line",
+              label: "Stoch (40, 4 %D)",
+              data: slicedStoch40,
+              borderColor: "#ec4899",
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.2,
+              yAxisID: "yStochastic",
+              order: 2
+            },
+            {
+              type: "line",
+              label: "Stoch (60, 10, 10 %D)",
+              data: slicedStoch60,
+              borderColor: "#10b981",
+              borderWidth: 1.8,
+              pointRadius: 0,
+              tension: 0.2,
+              yAxisID: "yStochastic",
+              order: 3
+            },
+            {
+              type: "line",
+              label: "Oversold Level",
+              data: new Array(labels.length).fill(20),
+              borderColor: "rgba(255, 255, 255, 0.15)",
+              borderWidth: 1.2,
+              borderDash: [5, 5],
+              pointRadius: 0,
+              fill: false,
+              yAxisID: "yStochastic",
+              order: 5
+            },
+            {
+              type: "line",
+              label: "Overbought Level",
+              data: new Array(labels.length).fill(80),
+              borderColor: "rgba(255, 255, 255, 0.15)",
+              borderWidth: 1.2,
+              borderDash: [5, 5],
+              pointRadius: 0,
+              fill: false,
+              yAxisID: "yStochastic",
+              order: 5
             }
           ]
         },
@@ -2613,13 +2683,16 @@ function renderTechnicalChart(ticker, tab) {
                 color: "rgba(255,255,255,0.7)",
                 font: { size: 10 },
                 usePointStyle: true,
-                pointStyle: "line"
+                pointStyle: "line",
+                filter: function(item) {
+                  return !["Volume", "Oversold Level", "Overbought Level"].includes(item.text);
+                }
               }
             }
           },
           scales: {
             x: { 
-              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
+              grid: { color: "rgba(255, 255, 255, 0.05)" }, 
               ticks: { 
                 color: "rgba(255,255,255,0.5)", 
                 font: { size: 9 },
@@ -2628,17 +2701,27 @@ function renderTechnicalChart(ticker, tab) {
                 minRotation: 0
               } 
             },
-            y: { 
-              grid: { color: "rgba(255, 255, 255, 0.03)" }, 
-              ticks: { color: "rgba(255,255,255,0.5)" },
+            yStochastic: {
+              type: 'linear',
+              position: 'left',
               min: 0,
-              max: 100
+              max: 100,
+              grid: { color: "rgba(255, 255, 255, 0.05)" },
+              ticks: { color: "rgba(255,255,255,0.5)", stepSize: 20 }
+            },
+            yVolume: {
+              type: 'linear',
+              position: 'right',
+              min: 0,
+              max: Math.max(...slicedVolumes) * 5,
+              grid: { display: false },
+              ticks: { display: false }
             }
           }
         }
       });
       
-      newStochChart.sourceData = { slicedStoch14, slicedStoch40 };
+      newStochChart.sourceData = { slicedStoch14, slicedStoch40, slicedStoch60 };
       updateStochChartLabels(newStochChart, -1);
       newStochChart.update("none");
 

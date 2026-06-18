@@ -541,6 +541,7 @@ def get_alpaca_positions(username: str, profile: str):
                                     "pnl": pnl_str,
                                     "status": "positive" if total_pnl >= 0 else "negative",
                                     "entry_price": entry_p,
+                                    "entry_timestamp": matching_trade.get("entry_timestamp") if (matching_trade and "entry_timestamp" in matching_trade) else None,
                                     "current_value": current_c,
                                     "is_credit": is_cr,
                                     "profit_target": profit_t,
@@ -661,6 +662,7 @@ def get_alpaca_positions(username: str, profile: str):
                             "pnl": pnl_str,
                             "status": "positive" if total_pnl >= 0 else "negative",
                             "entry_price": entry_p,
+                            "entry_timestamp": matching_trade.get("entry_timestamp") if (matching_trade and "entry_timestamp" in matching_trade) else None,
                             "current_value": cur_val_to_send,
                             "is_credit": is_cr,
                             "profit_target": profit_t,
@@ -748,6 +750,7 @@ def get_alpaca_positions(username: str, profile: str):
                         "pnl": pnl_str,
                         "status": "positive" if pnl_val >= 0 else "negative",
                         "entry_price": entry_p,
+                        "entry_timestamp": matching_trade.get("entry_timestamp") if (matching_trade and "entry_timestamp" in matching_trade) else None,
                         "current_value": cur_val_to_send,
                         "is_credit": is_cr,
                         "profit_target": profit_t,
@@ -1160,7 +1163,8 @@ def execute_trade(trade: TradeModel, username: str, background_tasks: Background
                 "expiry": trade.expiry,
                 "legs": registered_legs,
                 "order_id": "working",
-                "profit_target": trade.tp_price or 0.85
+                "profit_target": trade.tp_price or 0.85,
+                "entry_timestamp": time.time()
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
@@ -1216,7 +1220,8 @@ def execute_trade(trade: TradeModel, username: str, background_tasks: Background
                     "type": leg["type"]
                 }],
                 "order_id": str(order.id),
-                "profit_target": trade.tp_price or 0.85
+                "profit_target": trade.tp_price or 0.85,
+                "entry_timestamp": time.time()
             })
             db["users"][username_lower]["state"] = user_state
             write_db(db)
@@ -1759,6 +1764,61 @@ def calculate_stochastic_d(highs: list, lows: list, closes: list, k_period: int,
         d_values[i] = round(sum(k_values[i - d_period + 1 : i + 1]) / d_period, 2)
     return d_values
 
+def calculate_stochastic_slowing_d(highs: list, lows: list, closes: list, k_period: int, slowing_period: int, d_period: int) -> list:
+    n = len(closes)
+    raw_k = [50.0] * n
+    for i in range(k_period - 1, n):
+        sub_lows = lows[i - k_period + 1 : i + 1]
+        sub_highs = highs[i - k_period + 1 : i + 1]
+        low_low = min(sub_lows) if sub_lows else lows[i]
+        high_high = max(sub_highs) if sub_highs else highs[i]
+        diff = high_high - low_low
+        if diff == 0:
+            raw_k[i] = 50.0
+        else:
+            raw_k[i] = (closes[i] - low_low) / diff * 100.0
+            
+    slowed_k = [50.0] * n
+    for i in range(k_period + slowing_period - 2, n):
+        slowed_k[i] = sum(raw_k[i - slowing_period + 1 : i + 1]) / slowing_period
+        
+    d_values = [None] * n
+    for i in range(k_period + slowing_period + d_period - 3, n):
+        d_values[i] = round(sum(slowed_k[i - d_period + 1 : i + 1]) / d_period, 2)
+        
+    return d_values
+
+def calculate_vwap(timestamps: list, highs: list, lows: list, closes: list, volumes: list) -> list:
+    import datetime
+    n = len(closes)
+    vwap = []
+    current_day = None
+    cum_pv = 0.0
+    cum_vol = 0.0
+    
+    for i in range(n):
+        ts = timestamps[i]
+        dt = datetime.datetime.utcfromtimestamp(ts) - datetime.timedelta(hours=5)
+        day_str = dt.strftime("%Y-%m-%d")
+        
+        if current_day != day_str:
+            current_day = day_str
+            cum_pv = 0.0
+            cum_vol = 0.0
+            
+        tp = (highs[i] + lows[i] + closes[i]) / 3.0
+        vol = float(volumes[i]) if volumes[i] is not None else 0.0
+        
+        cum_pv += tp * vol
+        cum_vol += vol
+        
+        if cum_vol > 0.0:
+            vwap.append(round(cum_pv / cum_vol, 2))
+        else:
+            vwap.append(closes[i])
+            
+    return vwap
+
 # Fetch 1h Candlestick Chart Data & Technical Indicators
 @app.get("/api/chart/technical")
 def get_chart_technical(ticker: str):
@@ -1779,12 +1839,14 @@ def get_chart_technical(ticker: str):
         highs = quotes["high"]
         lows = quotes["low"]
         closes = quotes["close"]
+        volumes = quotes.get("volume", [0] * len(closes))
         
         clean_timestamps = []
         clean_opens = []
         clean_highs = []
         clean_lows = []
         clean_closes = []
+        clean_volumes = []
         
         for i in range(len(closes)):
             if (closes[i] is not None and highs[i] is not None and 
@@ -1794,14 +1856,17 @@ def get_chart_technical(ticker: str):
                 clean_highs.append(round(highs[i], 2))
                 clean_lows.append(round(lows[i], 2))
                 clean_closes.append(round(closes[i], 2))
+                clean_volumes.append(volumes[i] if volumes[i] is not None else 0)
                 
-        if len(clean_closes) < 45:
+        if len(clean_closes) < 65:
             raise HTTPException(status_code=400, detail="Not enough bar history to compute indicators.")
             
         hma30 = calculate_hma(clean_closes, 30)
-        supertrend, direction = calculate_supertrend(clean_highs, clean_lows, clean_closes, 12, 2.2)
-        stoch14_4d = calculate_stochastic_d(clean_highs, clean_lows, clean_closes, 14, 4)
-        stoch40_4d = calculate_stochastic_d(clean_highs, clean_lows, clean_closes, 40, 4)
+        supertrend, direction = calculate_supertrend(clean_highs, clean_lows, clean_closes, 12, 1.9)
+        vwap = calculate_vwap(clean_timestamps, clean_highs, clean_lows, clean_closes, clean_volumes)
+        stoch14_4d = calculate_stochastic_slowing_d(clean_highs, clean_lows, clean_closes, 14, 1, 4)
+        stoch40_4d = calculate_stochastic_slowing_d(clean_highs, clean_lows, clean_closes, 40, 1, 4)
+        stoch60_10_10d = calculate_stochastic_slowing_d(clean_highs, clean_lows, clean_closes, 60, 10, 10)
         
         return {
             "ticker": ticker_upper,
@@ -1810,11 +1875,14 @@ def get_chart_technical(ticker: str):
             "highs": clean_highs,
             "lows": clean_lows,
             "closes": clean_closes,
+            "volumes": clean_volumes,
+            "vwap": vwap,
             "hma30": hma30,
             "supertrend": supertrend,
             "supertrendDirection": direction,
             "stoch14_4d": stoch14_4d,
-            "stoch40_4d": stoch40_4d
+            "stoch40_4d": stoch40_4d,
+            "stoch60_10_10d": stoch60_10_10d
         }
         
     except Exception as e:
