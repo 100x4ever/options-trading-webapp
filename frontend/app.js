@@ -2325,8 +2325,8 @@ function renderTechnicalChart(ticker, tab) {
     });
     
     // TradingView Candlestick Colors
-    const tvGreen = "#089981";
-    const tvRed = "#f23645";
+    const tvGreen = "#00ffaa";
+    const tvRed = "#f43e32";
     const candleColors = slicedCloses.map((c, i) => c >= slicedOpens[i] ? tvGreen : tvRed);
     const wicksData = slicedCloses.map((c, i) => [slicedLows[i], slicedHighs[i]]);
     const bodiesData = slicedCloses.map((c, i) => [slicedOpens[i], c]);
@@ -2473,7 +2473,7 @@ function renderTechnicalChart(ticker, tab) {
           type: "line",
           label: "VWAP",
           data: slicedVwap,
-          borderColor: "#ff7000",
+          borderColor: "#00b0ff",
           borderWidth: 1.8,
           pointRadius: 0,
           tension: 0.1,

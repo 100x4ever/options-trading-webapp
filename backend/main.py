@@ -398,6 +398,12 @@ def get_alpaca_positions(username: str, profile: str):
             print(f"[Auto-TP] Error fetching open orders: {oe}")
             symbols_with_orders = set()
             
+        filled_orders = []
+        try:
+            filled_orders = trading_client.get_orders(filter=GetOrdersRequest(status=OrderStatus.FILLED, limit=50))
+        except Exception as fe:
+            print(f"[Entry-Timestamp] Error fetching filled orders: {fe}")
+            
         underlying_prices = {}
         r = 0.045
         sigma = 0.22
@@ -475,6 +481,62 @@ def get_alpaca_positions(username: str, profile: str):
                             if t["strategy"].lower() == strategy_type.lower() or strategy_type.lower() in t["strategy"].lower():
                                 return t
             return None
+            
+        db_changed = False
+        def try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker=None, expiry_yymmdd=None, strategy_name=None, qty=1):
+            nonlocal db_changed
+            if matching_trade:
+                if "entry_timestamp" in matching_trade:
+                    return matching_trade
+                
+                leg_symbols_set = set(leg_symbols)
+                for ord in filled_orders:
+                    ord_symbols = set()
+                    if ord.legs:
+                        ord_symbols = {l.symbol for l in ord.legs}
+                    elif ord.symbol:
+                        ord_symbols = {ord.symbol}
+                    if ord_symbols == leg_symbols_set:
+                        filled_at = ord.filled_at
+                        if filled_at:
+                            matching_trade["entry_timestamp"] = filled_at.timestamp()
+                            db_changed = True
+                            print(f"[Entry-Timestamp] Recovered entry timestamp for {matching_trade['ticker']} {matching_trade['strategy']}: {filled_at.timestamp()}")
+                            break
+                return matching_trade
+            else:
+                # Try to auto-register active trade if there's an Alpaca filled order matching the legs
+                leg_symbols_set = set(leg_symbols)
+                for ord in filled_orders:
+                    ord_symbols = set()
+                    if ord.legs:
+                        ord_symbols = {l.symbol for l in ord.legs}
+                    elif ord.symbol:
+                        ord_symbols = {ord.symbol}
+                    if ord_symbols == leg_symbols_set:
+                        filled_at = ord.filled_at
+                        if filled_at:
+                            entry_price = float(ord.filled_avg_price) if getattr(ord, 'filled_avg_price', None) is not None else 1.00
+                            new_trade = {
+                                "ticker": ticker.upper(),
+                                "strategy": strategy_name,
+                                "strike_str": "",
+                                "entry_price": entry_price,
+                                "qty": qty,
+                                "expiry": expiry_yymmdd,
+                                "legs": [{"symbol": sym, "side": "buy", "strike": 0, "type": "CALL"} for sym in leg_symbols],
+                                "order_id": str(ord.id),
+                                "profit_target": 0.85,
+                                "entry_timestamp": filled_at.timestamp()
+                            }
+                            if "active_trades" not in profile_data:
+                                profile_data["active_trades"] = []
+                            profile_data["active_trades"].append(new_trade)
+                            db_changed = True
+                            print(f"[Entry-Timestamp] Auto-registered trade and timestamp for {ticker} {strategy_name}: {filled_at.timestamp()}")
+                            return new_trade
+                        break
+            return None
         
         for (ticker, expiry_yymmdd), legs in groups.items():
             legs.sort(key=lambda x: x["strike"])
@@ -520,6 +582,8 @@ def get_alpaca_positions(username: str, profile: str):
                                 net_val = sum(l["current_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs)
 
                                 matching_trade = find_active_trade(ticker, expiry_yymmdd, "Iron Condor")
+                                leg_symbols = [l["symbol"] for l in comb_legs]
+                                matching_trade = try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker, expiry_yymmdd, "Iron Condor", q)
                                 entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
                                 is_cr = True
                                 current_c = -net_val
@@ -618,6 +682,8 @@ def get_alpaca_positions(username: str, profile: str):
                         net_val = sum(l["current_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2])
 
                         matching_trade = find_active_trade(ticker, expiry_yymmdd, strat_name)
+                        leg_symbols = [leg1["symbol"], leg2["symbol"]]
+                        matching_trade = try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker, expiry_yymmdd, strat_name, q)
                         entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
                         is_cr = strat_name in ["Bear Call Spread", "Bull Put Spread"] or "condor" in strat_name.lower()
                         
@@ -712,6 +778,7 @@ def get_alpaca_positions(username: str, profile: str):
                     total_theta = leg["theta"] * leg_qty
 
                     matching_trade = find_active_trade(ticker, expiry_yymmdd, "Call" if leg["type"] == "CALL" else "Put", strike_val)
+                    matching_trade = try_backfill_entry_timestamp(matching_trade, [leg["symbol"]], ticker, expiry_yymmdd, "Call" if leg["type"] == "CALL" else "Put", abs(leg_qty))
                     entry_p = float(matching_trade["entry_price"]) if matching_trade else float(leg['avg_entry_price'])
                     is_cr = leg_qty < 0
                     net_val = float(leg['current_price'])
@@ -794,6 +861,10 @@ def get_alpaca_positions(username: str, profile: str):
                 "pnl": pnl_str,
                 "status": "positive" if pnl_val >= 0 else "negative"
             })
+            
+        if db_changed:
+            db["users"][username.lower()]["state"] = user_state
+            write_db(db)
             
         return formatted_positions
     except Exception:
