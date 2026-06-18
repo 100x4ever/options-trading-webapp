@@ -1890,12 +1890,11 @@ def calculate_vwap(timestamps: list, highs: list, lows: list, closes: list, volu
             
     return vwap
 
-# Fetch 1h Candlestick Chart Data & Technical Indicators
 @app.get("/api/chart/technical")
-def get_chart_technical(ticker: str):
+def get_chart_technical(ticker: str, interval: str = "1h", range: str = "1mo"):
     ticker_upper = ticker.strip().upper()
     try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}?interval=1h&range=1mo"
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker_upper}?interval={interval}&range={range}"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code != 200:
