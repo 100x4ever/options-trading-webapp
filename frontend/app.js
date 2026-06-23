@@ -669,12 +669,15 @@ function renderDashboard() {
           ${renderTugOfWarMeter(pos)}
         ` : '';
 
+        const entryPriceStr = pos.avg && pos.avg !== "-" ? `$${pos.avg}` : "-";
+        const currentPriceStr = pos.mark && pos.mark !== "-" ? `$${pos.mark}` : "-";
+
         return `
           <div class="strategy-item hover-trigger" style="cursor: pointer; display: block;" onclick="toggleDashboardPosition('${posKey}')">
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <div class="strategy-info">
                 <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
-                <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty}</span>
+                <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty} | Entry: ${entryPriceStr} | Current: ${currentPriceStr}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
