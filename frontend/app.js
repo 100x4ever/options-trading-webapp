@@ -2297,10 +2297,8 @@ function updateMainChartLabels(chart, index) {
   const idx = index >= 0 ? index : chart.sourceData.slicedHma.length - 1;
   const vwapVal = chart.sourceData.slicedVwap[idx];
   const hmaVal = chart.sourceData.slicedHma[idx];
-  const supertrendVal = chart.sourceData.slicedSupertrend[idx];
   chart.data.datasets[2].label = `VWAP: ${vwapVal !== null && vwapVal !== undefined ? '$' + parseFloat(vwapVal).toFixed(2) : 'N/A'}`;
   chart.data.datasets[3].label = `30 HMA: ${hmaVal !== null && hmaVal !== undefined ? '$' + parseFloat(hmaVal).toFixed(2) : 'N/A'}`;
-  chart.data.datasets[4].label = `Supertrend: ${supertrendVal !== null && supertrendVal !== undefined ? '$' + parseFloat(supertrendVal).toFixed(2) : 'N/A'}`;
 }
 
 function updateStochChartLabels(chart, index) {
@@ -2572,10 +2570,9 @@ function renderTechnicalChart(ticker, tab) {
       
       currentMainChart.data.datasets[2].data = slicedVwap;
       currentMainChart.data.datasets[3].data = slicedHma;
-      currentMainChart.data.datasets[4].data = slicedSupertrend;
-      currentMainChart.data.datasets[5].data = entryMarkers;
+      currentMainChart.data.datasets[4].data = entryMarkers;
       
-      currentMainChart.data.datasets = currentMainChart.data.datasets.slice(0, 6);
+      currentMainChart.data.datasets = currentMainChart.data.datasets.slice(0, 5);
       
       fibDatasets.forEach(ds => {
         currentMainChart.data.datasets.push(ds);
@@ -2634,16 +2631,6 @@ function renderTechnicalChart(ticker, tab) {
           pointRadius: 0,
           tension: 0.2,
           order: 2
-        },
-        {
-          type: "line",
-          label: "Supertrend",
-          data: slicedSupertrend,
-          borderColor: "#ffffff",
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: 0.1,
-          order: 0
         },
         entryDataset
       ];
