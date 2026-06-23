@@ -672,11 +672,33 @@ function renderDashboard() {
         const entryPriceStr = pos.avg && pos.avg !== "-" ? `$${pos.avg}` : "-";
         const currentPriceStr = pos.mark && pos.mark !== "-" ? `$${pos.mark}` : "-";
 
+        const typeLower = (pos.type || "").toLowerCase();
+        let displayTitle = "";
+        
+        if (typeLower === "iron condor") {
+          displayTitle = "Neutral Condor";
+        } else if (typeLower.includes("spread")) {
+          const bias = typeLower.includes("bull") ? "Bull" : "Bear";
+          const costType = pos.is_credit ? "Credit" : "Debit";
+          displayTitle = `${bias} ${costType}`;
+        } else if (typeLower === "call" || typeLower === "put") {
+          const bias = typeLower === "call" ? (pos.qty > 0 ? "Bull" : "Bear") : (pos.qty > 0 ? "Bear" : "Bull");
+          const costType = pos.is_credit ? "Credit" : "Debit";
+          displayTitle = `${bias} ${costType}`;
+        } else {
+          displayTitle = `${pos.ticker} ${pos.type}`;
+        }
+
+        if (pos.breakevens && pos.breakevens.length > 0) {
+          const beVals = pos.breakevens.map(be => `$${parseFloat(be.price).toFixed(2)}`).join(" / ");
+          displayTitle += ` BE ${beVals}`;
+        }
+
         return `
           <div class="strategy-item hover-trigger" style="cursor: pointer; display: block;" onclick="toggleDashboardPosition('${posKey}')">
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <div class="strategy-info">
-                <span class="strategy-title">${pos.ticker} ${pos.strike !== "-" ? "$" + pos.strike : ""} ${pos.type}</span>
+                <span class="strategy-title">${displayTitle}</span>
                 <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty} | Entry: ${entryPriceStr} | Current: ${currentPriceStr}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">

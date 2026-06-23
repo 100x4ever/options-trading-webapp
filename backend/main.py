@@ -584,7 +584,10 @@ def get_alpaca_positions(username: str, profile: str):
                                 matching_trade = find_active_trade(ticker, expiry_yymmdd, "Iron Condor")
                                 leg_symbols = [l["symbol"] for l in comb_legs]
                                 matching_trade = try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker, expiry_yymmdd, "Iron Condor", q)
-                                entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
+                                if matching_trade:
+                                    entry_p = float(matching_trade["entry_price"])
+                                else:
+                                    entry_p = abs(sum(l["avg_entry_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs))
                                 is_cr = True
                                 current_c = -net_val
                                 profit_t = entry_p * 0.50
@@ -597,7 +600,7 @@ def get_alpaca_positions(username: str, profile: str):
                                     "exp": exp_clean,
                                     "expiry_yymmdd": expiry_yymmdd,
                                     "qty": q,
-                                    "avg": f"{entry_p:.2f}" if matching_trade else "-",
+                                    "avg": f"{entry_p:.2f}",
                                     "mark": f"{abs(net_val):.2f}",
                                     "delta": f"{total_delta:+.2f}",
                                     "gamma": f"{total_gamma:+.4f}",
@@ -684,7 +687,10 @@ def get_alpaca_positions(username: str, profile: str):
                         matching_trade = find_active_trade(ticker, expiry_yymmdd, strat_name)
                         leg_symbols = [leg1["symbol"], leg2["symbol"]]
                         matching_trade = try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker, expiry_yymmdd, strat_name, q)
-                        entry_p = float(matching_trade["entry_price"]) if matching_trade else 1.00
+                        if matching_trade:
+                            entry_p = float(matching_trade["entry_price"])
+                        else:
+                            entry_p = abs(sum(l["avg_entry_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2]))
                         is_cr = strat_name in ["Bear Call Spread", "Bull Put Spread"] or "condor" in strat_name.lower()
                         
                         if is_cr:
@@ -720,7 +726,7 @@ def get_alpaca_positions(username: str, profile: str):
                             "exp": exp_clean,
                             "expiry_yymmdd": expiry_yymmdd,
                             "qty": q,
-                            "avg": f"{entry_p:.2f}" if matching_trade else "-",
+                            "avg": f"{entry_p:.2f}",
                             "mark": f"{abs(net_val):.2f}",
                             "delta": f"{total_delta:+.2f}",
                             "gamma": f"{total_gamma:+.4f}",
