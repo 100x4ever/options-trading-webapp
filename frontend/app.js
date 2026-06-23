@@ -2527,6 +2527,39 @@ function renderTechnicalChart(ticker, tab) {
     const yMin = Math.floor(minLows - ((maxHighs - minLows) * 0.05 || 2.0));
     const yMax = Math.ceil(maxHighs + ((maxHighs - minLows) * 0.05 || 2.0));
 
+    // Calculate Session High, Low, and Fibonacci Retracement Levels
+    const sessionHighVal = Math.max(...slicedHighs);
+    const sessionLowVal = Math.min(...slicedLows);
+    const sessionRangeVal = sessionHighVal - sessionLowVal;
+
+    const fibDatasets = [];
+    if (sessionRangeVal > 0) {
+      const fibLevels = [
+        { label: "Session High", val: sessionHighVal, color: "rgba(244, 62, 50, 0.45)", width: 1.2, dash: [4, 4] },
+        { label: "Fib 0.786", val: sessionLowVal + 0.786 * sessionRangeVal, color: "rgba(255, 255, 255, 0.18)", width: 0.8, dash: [2, 4] },
+        { label: "Fib 0.618 (Golden)", val: sessionLowVal + 0.618 * sessionRangeVal, color: "rgba(0, 240, 255, 0.85)", width: 1.8, dash: [6, 3] },
+        { label: "Fib 0.500 (Mid)", val: sessionLowVal + 0.500 * sessionRangeVal, color: "rgba(255, 208, 0, 0.85)", width: 1.8, dash: [6, 3] },
+        { label: "Fib 0.382", val: sessionLowVal + 0.382 * sessionRangeVal, color: "rgba(255, 255, 255, 0.18)", width: 0.8, dash: [2, 4] },
+        { label: "Fib 0.236", val: sessionLowVal + 0.236 * sessionRangeVal, color: "rgba(255, 255, 255, 0.8)", width: 1.5, dash: [4, 4] },
+        { label: "Session Low", val: sessionLowVal, color: "rgba(0, 255, 170, 0.45)", width: 1.2, dash: [4, 4] }
+      ];
+
+      fibLevels.forEach(level => {
+        const levelData = new Array(labels.length).fill(level.val);
+        fibDatasets.push({
+          type: "line",
+          label: level.label,
+          data: levelData,
+          borderColor: level.color,
+          borderWidth: level.width,
+          borderDash: level.dash,
+          pointRadius: 0,
+          fill: false,
+          order: 5
+        });
+      });
+    }
+
     if (currentMainChart) {
       currentMainChart.data.labels = labels;
       currentMainChart.data.datasets[0].data = bodiesData;
@@ -2543,10 +2576,15 @@ function renderTechnicalChart(ticker, tab) {
       currentMainChart.data.datasets[5].data = entryMarkers;
       
       currentMainChart.data.datasets = currentMainChart.data.datasets.slice(0, 6);
+      
+      fibDatasets.forEach(ds => {
+        currentMainChart.data.datasets.push(ds);
+      });
+      
       breakevenDatasets.forEach(ds => {
         currentMainChart.data.datasets.push(ds);
       });
-
+ 
       currentMainChart.sourceData = { slicedVwap, slicedHma, slicedSupertrend };
       updateMainChartLabels(currentMainChart, currentMainChart.lastHoveredIndex !== undefined ? currentMainChart.lastHoveredIndex : -1);
       
@@ -2609,11 +2647,15 @@ function renderTechnicalChart(ticker, tab) {
         },
         entryDataset
       ];
-
+ 
+      fibDatasets.forEach(ds => {
+        initialDatasets.push(ds);
+      });
+ 
       breakevenDatasets.forEach(ds => {
         initialDatasets.push(ds);
       });
-
+ 
       const newMainChart = new Chart(ctxMain, {
         type: "bar",
         data: {
@@ -2640,7 +2682,8 @@ function renderTechnicalChart(ticker, tab) {
                 usePointStyle: true,
                 pointStyle: "line",
                 filter: function(item) {
-                  return !["Price Body", "Wick Range", "Position Entry"].includes(item.text);
+                  const hideList = ["Price Body", "Wick Range", "Position Entry", "Session High", "Session Low"];
+                  return !hideList.includes(item.text) && !item.text.startsWith("Fib");
                 }
               }
             }
@@ -2670,7 +2713,7 @@ function renderTechnicalChart(ticker, tab) {
       newMainChart.sourceData = { slicedVwap, slicedHma, slicedSupertrend };
       updateMainChartLabels(newMainChart, -1);
       newMainChart.update("none");
-
+ 
       if (isWiz) wizTechChart = newMainChart;
       else if (isDash) dashTechChart = newMainChart;
       else if (isFull) fullTechChart = newMainChart;
