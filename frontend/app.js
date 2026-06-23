@@ -2535,13 +2535,13 @@ function renderTechnicalChart(ticker, tab) {
     const fibDatasets = [];
     if (sessionRangeVal > 0) {
       const fibLevels = [
-        { label: "Session High", val: sessionHighVal, color: "rgba(244, 62, 50, 0.45)", width: 1.2, dash: [4, 4] },
-        { label: "Fib 0.786", val: sessionLowVal + 0.786 * sessionRangeVal, color: "rgba(255, 255, 255, 0.18)", width: 0.8, dash: [2, 4] },
-        { label: "Fib 0.618 (Golden)", val: sessionLowVal + 0.618 * sessionRangeVal, color: "rgba(0, 240, 255, 0.85)", width: 1.8, dash: [6, 3] },
-        { label: "Fib 0.500 (Mid)", val: sessionLowVal + 0.500 * sessionRangeVal, color: "rgba(255, 208, 0, 0.85)", width: 1.8, dash: [6, 3] },
-        { label: "Fib 0.382", val: sessionLowVal + 0.382 * sessionRangeVal, color: "rgba(255, 255, 255, 0.18)", width: 0.8, dash: [2, 4] },
-        { label: "Fib 0.236", val: sessionLowVal + 0.236 * sessionRangeVal, color: "rgba(255, 255, 255, 0.8)", width: 1.5, dash: [4, 4] },
-        { label: "Session Low", val: sessionLowVal, color: "rgba(0, 255, 170, 0.45)", width: 1.2, dash: [4, 4] }
+        { label: "Session High", val: sessionHighVal, color: "#00ffaa", width: 1.5 },
+        { label: "Fib 0.786", val: sessionLowVal + 0.786 * sessionRangeVal, color: "rgba(255, 255, 255, 0.25)", width: 1.0 },
+        { label: "Fib 0.618 (Golden)", val: sessionLowVal + 0.618 * sessionRangeVal, color: "rgba(186, 104, 200, 0.85)", width: 1.6 },
+        { label: "Fib 0.500 (Mid)", val: sessionLowVal + 0.500 * sessionRangeVal, color: "rgba(186, 104, 200, 0.85)", width: 1.6 },
+        { label: "Fib 0.382", val: sessionLowVal + 0.382 * sessionRangeVal, color: "rgba(255, 255, 255, 0.25)", width: 1.0 },
+        { label: "Fib 0.236", val: sessionLowVal + 0.236 * sessionRangeVal, color: "rgba(255, 167, 38, 0.85)", width: 1.5 },
+        { label: "Session Low", val: sessionLowVal, color: "#f43e32", width: 1.5 }
       ];
 
       fibLevels.forEach(level => {
