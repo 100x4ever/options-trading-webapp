@@ -413,13 +413,9 @@ def get_alpaca_positions(username: str, profile: str):
         positions = trading_client.get_all_positions()
         
         # Auto-fetch open orders to prevent duplicate TP orders
-        from alpaca.trading.requests import GetOrdersRequest
-        from alpaca.trading.enums import OrderStatus
         open_orders = []
         try:
-            all_orders = trading_client.get_orders(filter=GetOrdersRequest(status=OrderStatus.ALL, limit=100))
-            active_statuses = {"open", "accepted", "pending_new", "partially_filled", "accepted_for_bidding", "calculated", "new"}
-            open_orders = [o for o in all_orders if str(o.status).lower() in active_statuses]
+            open_orders = trading_client.get_orders()
             symbols_with_orders = set()
             for ord in open_orders:
                 if ord.legs:
@@ -1461,9 +1457,7 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                 
         if target_symbols:
             try:
-                all_orders = trading_client.get_orders(filter=GetOrdersRequest(status=OrderStatus.ALL, limit=100))
-                active_statuses = {"open", "accepted", "pending_new", "partially_filled", "accepted_for_bidding", "calculated", "new"}
-                open_orders = [o for o in all_orders if str(o.status).lower() in active_statuses]
+                open_orders = trading_client.get_orders()
                 cancelled_any = False
                 for ord in open_orders:
                     ord_symbols = set()
