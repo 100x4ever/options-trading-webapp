@@ -2524,37 +2524,79 @@ function renderTechnicalChart(ticker, tab) {
 
     const yMin = Math.floor(minLows - ((maxHighs - minLows) * 0.05 || 2.0));
     const yMax = Math.ceil(maxHighs + ((maxHighs - minLows) * 0.05 || 2.0));
-
-    // Calculate Session High, Low, and Fibonacci Retracement Levels
     const sessionHighVal = Math.max(...slicedHighs);
     const sessionLowVal = Math.min(...slicedLows);
     const sessionRangeVal = sessionHighVal - sessionLowVal;
 
     const fibDatasets = [];
     if (sessionRangeVal > 0) {
-      const fibLevels = [
-        { label: "Session High", val: sessionHighVal, color: "#00ffaa", width: 1.5 },
-        { label: "Fib 0.786", val: sessionLowVal + 0.786 * sessionRangeVal, color: "rgba(255, 255, 255, 0.25)", width: 1.0 },
-        { label: "Fib 0.618 (Golden)", val: sessionLowVal + 0.618 * sessionRangeVal, color: "rgba(186, 104, 200, 0.85)", width: 1.6 },
-        { label: "Fib 0.500 (Mid)", val: sessionLowVal + 0.500 * sessionRangeVal, color: "rgba(186, 104, 200, 0.85)", width: 1.6 },
-        { label: "Fib 0.382", val: sessionLowVal + 0.382 * sessionRangeVal, color: "rgba(255, 255, 255, 0.25)", width: 1.0 },
-        { label: "Fib 0.236", val: sessionLowVal + 0.236 * sessionRangeVal, color: "rgba(255, 167, 38, 0.85)", width: 1.5 },
-        { label: "Session Low", val: sessionLowVal, color: "#f43e32", width: 1.5 }
-      ];
+      // 1. Session High (Solid Green)
+      const highData = new Array(labels.length).fill(sessionHighVal);
+      fibDatasets.push({
+        type: "line",
+        label: "Session High",
+        data: highData,
+        borderColor: "#00ffaa",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        order: 5
+      });
 
-      fibLevels.forEach(level => {
-        const levelData = new Array(labels.length).fill(level.val);
-        fibDatasets.push({
-          type: "line",
-          label: level.label,
-          data: levelData,
-          borderColor: level.color,
-          borderWidth: level.width,
-          borderDash: level.dash,
-          pointRadius: 0,
-          fill: false,
-          order: 5
-        });
+      // 2. Fib 0.618 (Light Purple boundary of the cloud)
+      const fib618Val = sessionLowVal + 0.618 * sessionRangeVal;
+      const fib618Data = new Array(labels.length).fill(fib618Val);
+      fibDatasets.push({
+        type: "line",
+        label: "Fib 0.618",
+        data: fib618Data,
+        borderColor: "rgba(186, 104, 200, 0.4)",
+        borderWidth: 1.0,
+        pointRadius: 0,
+        fill: false,
+        order: 5
+      });
+
+      // 3. Fib 0.500 (Light Purple boundary of the cloud + fill to 0.618)
+      const fib500Val = sessionLowVal + 0.500 * sessionRangeVal;
+      const fib500Data = new Array(labels.length).fill(fib500Val);
+      fibDatasets.push({
+        type: "line",
+        label: "Fib 0.500",
+        data: fib500Data,
+        borderColor: "rgba(186, 104, 200, 0.4)",
+        borderWidth: 1.0,
+        pointRadius: 0,
+        fill: "-1", // Fills to the dataset immediately before it (Fib 0.618)
+        backgroundColor: "rgba(0, 176, 255, 0.18)", // Semi-transparent blue cloud
+        order: 5
+      });
+
+      // 4. Fib 0.236 (Solid Light Orange)
+      const fib236Val = sessionLowVal + 0.236 * sessionRangeVal;
+      const fib236Data = new Array(labels.length).fill(fib236Val);
+      fibDatasets.push({
+        type: "line",
+        label: "Fib 0.236",
+        data: fib236Data,
+        borderColor: "rgba(255, 167, 38, 0.85)",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        order: 5
+      });
+
+      // 5. Session Low (Solid Red)
+      const lowData = new Array(labels.length).fill(sessionLowVal);
+      fibDatasets.push({
+        type: "line",
+        label: "Session Low",
+        data: lowData,
+        borderColor: "#f43e32",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        order: 5
       });
     }
 
@@ -2616,7 +2658,7 @@ function renderTechnicalChart(ticker, tab) {
           type: "line",
           label: "VWAP",
           data: slicedVwap,
-          borderColor: "#00b0ff",
+          borderColor: "#000000",
           borderWidth: 1.8,
           pointRadius: 0,
           tension: 0.1,
