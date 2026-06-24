@@ -2658,8 +2658,8 @@ function renderTechnicalChart(ticker, tab) {
           type: "line",
           label: "VWAP",
           data: slicedVwap,
-          borderColor: "#000000",
-          borderWidth: 1.8,
+          borderColor: "#ffffff",
+          borderWidth: 2.8,
           pointRadius: 0,
           tension: 0.1,
           order: 1
