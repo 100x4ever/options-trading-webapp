@@ -385,6 +385,7 @@ def get_alpaca_positions(username: str, profile: str):
         # Auto-fetch open orders to prevent duplicate TP orders
         from alpaca.trading.requests import GetOrdersRequest
         from alpaca.trading.enums import OrderStatus
+        open_orders = []
         try:
             open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=OrderStatus.OPEN))
             symbols_with_orders = set()
@@ -464,23 +465,42 @@ def get_alpaca_positions(username: str, profile: str):
         matched_symbols = set()
         active_trades = profile_data.get("active_trades", [])
 
-        # Helper to match positions with locally registered active trades
-        def find_active_trade(ticker, expiry_yymmdd, strategy_type, strike_val=None):
+        # Helper to match positions with locally registered active trades by leg strikes/types
+        def find_active_trade_by_legs(ticker, expiry_yymmdd, strategy_type, legs):
+            # legs is a list of dicts from the reconstructed position, e.g. [{"strike": 712.0, "type": "CALL", "side": "buy"}, ...]
+            leg_set = {(float(l["strike"]), l["type"].upper(), l["side"].lower()) for l in legs}
             for t in active_trades:
-                if t["ticker"] == ticker.upper():
-                    if format_date_to_yymmdd(t["expiry"]) == expiry_yymmdd:
-                        if strike_val is not None:
-                            try:
-                                strike_str_clean = t["strike_str"].replace("$", "").strip()
-                                if f"{strike_val:.2f}" in strike_str_clean:
-                                    return t
-                            except Exception:
-                                pass
-                        else:
-                            # Loose match on strategy name
-                            if t["strategy"].lower() == strategy_type.lower() or strategy_type.lower() in t["strategy"].lower():
+                if t["ticker"] == ticker.upper() and format_date_to_yymmdd(t["expiry"]) == expiry_yymmdd:
+                    t_legs = t.get("legs", [])
+                    if len(t_legs) == len(legs):
+                        try:
+                            t_leg_set = {(float(tl["strike"]), tl["type"].upper(), tl["side"].lower()) for tl in t_legs}
+                            if t_leg_set == leg_set:
                                 return t
+                        except Exception:
+                            pass
+            
+            # Loose fallback to original strategy-name matching if precise leg matching doesn't find a match
+            for t in active_trades:
+                if t["ticker"] == ticker.upper() and format_date_to_yymmdd(t["expiry"]) == expiry_yymmdd:
+                    if t["strategy"].lower() == strategy_type.lower() or strategy_type.lower() in t["strategy"].lower():
+                        return t
             return None
+
+        # Helper to find matching open orders for a set of leg symbols and extract limit prices
+        def get_matching_open_orders_prices(leg_symbols):
+            prices = []
+            leg_symbols_set = set(leg_symbols)
+            for ord in open_orders:
+                ord_symbols = set()
+                if ord.legs:
+                    ord_symbols = {l.symbol for l in ord.legs}
+                elif ord.symbol:
+                    ord_symbols = {ord.symbol}
+                if ord_symbols == leg_symbols_set:
+                    if ord.limit_price is not None:
+                        prices.append(abs(float(ord.limit_price)))
+            return sorted(list(set(prices)))
             
         db_changed = False
         def try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker=None, expiry_yymmdd=None, strategy_name=None, qty=1):
@@ -581,7 +601,7 @@ def get_alpaca_positions(username: str, profile: str):
                                 # Calculate net value (mark price of the spread)
                                 net_val = sum(l["current_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in comb_legs)
 
-                                matching_trade = find_active_trade(ticker, expiry_yymmdd, "Iron Condor")
+                                matching_trade = find_active_trade_by_legs(ticker, expiry_yymmdd, "Iron Condor", comb_legs)
                                 leg_symbols = [l["symbol"] for l in comb_legs]
                                 matching_trade = try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker, expiry_yymmdd, "Iron Condor", q)
                                 if matching_trade:
@@ -592,6 +612,13 @@ def get_alpaca_positions(username: str, profile: str):
                                 current_c = -net_val
                                 profit_t = entry_p * 0.50
                                 stop_l = entry_p * 2.00
+
+                                # Calculate dynamic PnL based on entry price and current cost
+                                pnl_val = (entry_p - abs(net_val)) * q * 100
+                                pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
+
+                                open_tps = get_matching_open_orders_prices(leg_symbols)
+                                exit_targets = open_tps if open_tps else ([float(matching_trade["profit_target"])] if (matching_trade and "profit_target" in matching_trade) else [0.85])
 
                                 formatted_positions.append({
                                     "ticker": ticker,
@@ -606,7 +633,7 @@ def get_alpaca_positions(username: str, profile: str):
                                     "gamma": f"{total_gamma:+.4f}",
                                     "theta": f"{total_theta:+.2f}",
                                     "pnl": pnl_str,
-                                    "status": "positive" if total_pnl >= 0 else "negative",
+                                    "status": "positive" if pnl_val >= 0 else "negative",
                                     "entry_price": entry_p,
                                     "entry_timestamp": matching_trade.get("entry_timestamp") if (matching_trade and "entry_timestamp" in matching_trade) else None,
                                     "current_value": current_c,
@@ -616,7 +643,8 @@ def get_alpaca_positions(username: str, profile: str):
                                     "breakevens": [
                                         {"price": round(short_put["strike"] - entry_p, 2), "direction": "above"},
                                         {"price": round(short_call["strike"] + entry_p, 2), "direction": "under"}
-                                    ]
+                                    ],
+                                    "exit_prices": exit_targets
                                 })
                                 
                                 # Auto TP trigger
@@ -684,7 +712,7 @@ def get_alpaca_positions(username: str, profile: str):
                         # Calculate net value (mark price of the spread)
                         net_val = sum(l["current_price"] * (1.0 if l["side"] == "buy" else -1.0) for l in [leg1, leg2])
 
-                        matching_trade = find_active_trade(ticker, expiry_yymmdd, strat_name)
+                        matching_trade = find_active_trade_by_legs(ticker, expiry_yymmdd, strat_name, [leg1, leg2])
                         leg_symbols = [leg1["symbol"], leg2["symbol"]]
                         matching_trade = try_backfill_entry_timestamp(matching_trade, leg_symbols, ticker, expiry_yymmdd, strat_name, q)
                         if matching_trade:
@@ -698,11 +726,14 @@ def get_alpaca_positions(username: str, profile: str):
                             profit_t = entry_p * 0.50
                             stop_l = entry_p * 2.00
                             cur_val_to_send = -net_val
+                            pnl_val = (entry_p - abs(net_val)) * q * 100
                         else:
                             current_c = net_val
                             profit_t = entry_p * 1.50
                             stop_l = entry_p * 0.50
                             cur_val_to_send = net_val
+                            pnl_val = (abs(net_val) - entry_p) * q * 100
+                        pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
 
                         be_val = 0.0
                         be_dir = "above"
@@ -719,6 +750,9 @@ def get_alpaca_positions(username: str, profile: str):
                             be_val = sell_leg['strike'] - entry_p
                             be_dir = "above"
 
+                        open_tps = get_matching_open_orders_prices(leg_symbols)
+                        exit_targets = open_tps if open_tps else ([float(matching_trade["profit_target"])] if (matching_trade and "profit_target" in matching_trade) else [0.85])
+
                         formatted_positions.append({
                             "ticker": ticker,
                             "type": strat_name,
@@ -732,14 +766,15 @@ def get_alpaca_positions(username: str, profile: str):
                             "gamma": f"{total_gamma:+.4f}",
                             "theta": f"{total_theta:+.2f}",
                             "pnl": pnl_str,
-                            "status": "positive" if total_pnl >= 0 else "negative",
+                            "status": "positive" if pnl_val >= 0 else "negative",
                             "entry_price": entry_p,
                             "entry_timestamp": matching_trade.get("entry_timestamp") if (matching_trade and "entry_timestamp" in matching_trade) else None,
                             "current_value": cur_val_to_send,
                             "is_credit": is_cr,
                             "profit_target": profit_t,
                             "stop_loss": stop_l,
-                            "breakevens": [{"price": round(be_val, 2), "direction": be_dir}]
+                            "breakevens": [{"price": round(be_val, 2), "direction": be_dir}],
+                            "exit_prices": exit_targets
                         })
                         
                         # Auto TP trigger
@@ -775,15 +810,13 @@ def get_alpaca_positions(username: str, profile: str):
                     pos = leg["pos"]
                     strike_val = leg["strike"]
                     exp_clean = f"{expiry_yymmdd[2:4]}/{expiry_yymmdd[4:6]}"
-                    pnl_val = leg["unrealized_pl"]
-                    pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
                     
                     leg_qty = int(pos.qty)
                     total_delta = leg["delta"] * leg_qty
                     total_gamma = leg["gamma"] * leg_qty
                     total_theta = leg["theta"] * leg_qty
 
-                    matching_trade = find_active_trade(ticker, expiry_yymmdd, "Call" if leg["type"] == "CALL" else "Put", strike_val)
+                    matching_trade = find_active_trade_by_legs(ticker, expiry_yymmdd, "Call" if leg["type"] == "CALL" else "Put", [leg])
                     matching_trade = try_backfill_entry_timestamp(matching_trade, [leg["symbol"]], ticker, expiry_yymmdd, "Call" if leg["type"] == "CALL" else "Put", abs(leg_qty))
                     entry_p = float(matching_trade["entry_price"]) if matching_trade else float(leg['avg_entry_price'])
                     is_cr = leg_qty < 0
@@ -793,10 +826,13 @@ def get_alpaca_positions(username: str, profile: str):
                         profit_t = entry_p * 0.50
                         stop_l = entry_p * 2.00
                         cur_val_to_send = net_val
+                        pnl_val = (entry_p - net_val) * abs(leg_qty) * 100
                     else:
                         profit_t = entry_p * 1.50
                         stop_l = entry_p * 0.50
                         cur_val_to_send = net_val
+                        pnl_val = (net_val - entry_p) * abs(leg_qty) * 100
+                    pnl_str = f"+${pnl_val:.2f}" if pnl_val >= 0 else f"-${abs(pnl_val):.2f}"
 
                     be_val = 0.0
                     be_dir = "above"
@@ -807,6 +843,9 @@ def get_alpaca_positions(username: str, profile: str):
                     else:
                         be_val = strike_val - entry_p
                         be_dir = "under" if is_buy else "above"
+
+                    open_tps = get_matching_open_orders_prices([leg["symbol"]])
+                    exit_targets = open_tps if open_tps else ([float(matching_trade["profit_target"])] if (matching_trade and "profit_target" in matching_trade) else [0.85])
 
                     formatted_positions.append({
                         "ticker": ticker,
@@ -828,7 +867,8 @@ def get_alpaca_positions(username: str, profile: str):
                         "is_credit": is_cr,
                         "profit_target": profit_t,
                         "stop_loss": stop_l,
-                        "breakevens": [{"price": round(be_val, 2), "direction": be_dir}]
+                        "breakevens": [{"price": round(be_val, 2), "direction": be_dir}],
+                        "exit_prices": exit_targets
                     })
                     
                     # Auto TP trigger

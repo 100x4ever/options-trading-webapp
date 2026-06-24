@@ -671,6 +671,10 @@ function renderDashboard() {
 
         const entryPriceStr = pos.avg && pos.avg !== "-" ? `$${pos.avg}` : "-";
         const currentPriceStr = pos.mark && pos.mark !== "-" ? `$${pos.mark}` : "-";
+        let exitPriceStr = "-";
+        if (pos.exit_prices && pos.exit_prices.length > 0) {
+          exitPriceStr = pos.exit_prices.map(p => `$${parseFloat(p).toFixed(2)}`).join(", ");
+        }
 
         const typeLower = (pos.type || "").toLowerCase();
         let displayTitle = "";
@@ -699,7 +703,7 @@ function renderDashboard() {
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
               <div class="strategy-info">
                 <span class="strategy-title">${displayTitle}</span>
-                <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty} | Entry: ${entryPriceStr} | Current: ${currentPriceStr}</span>
+                <span class="strategy-meta">Expires ${pos.exp} | Qty: ${pos.qty} | Entry: ${entryPriceStr} | Exit: ${exitPriceStr} | Current: ${currentPriceStr}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="strategy-pnl ${pos.status}">${pos.pnl}</span>
