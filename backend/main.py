@@ -1393,6 +1393,8 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
  
     try:
         trading_client = TradingClient(api_key, secret_key, paper=not is_live)
+        target_symbols = set()
+        open_orders_debug = []
         
         # Parse legs from strike string
         order_legs = []
@@ -1413,7 +1415,6 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
         from alpaca.trading.requests import GetOrdersRequest
         from alpaca.trading.enums import OrderStatus
         
-        target_symbols = set()
         if legs_matched:
             for leg in order_legs:
                 target_symbols.add(format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"]))
@@ -1432,15 +1433,27 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                 cancelled_any = False
                 for ord in open_orders:
                     ord_symbols = set()
-                    if ord.legs:
+                    legs_list = None
+                    if getattr(ord, 'legs', None):
                         ord_symbols = {l.symbol for l in ord.legs}
-                    elif ord.symbol:
+                        legs_list = list(ord_symbols)
+                    elif getattr(ord, 'symbol', None):
                         ord_symbols = {ord.symbol}
+                        
+                    open_orders_debug.append({
+                        "id": str(ord.id),
+                        "symbol": getattr(ord, 'symbol', None),
+                        "legs": legs_list,
+                        "status": str(ord.status)
+                    })
                         
                     if ord_symbols & target_symbols:
                         print(f"[Auto-Cancel] Cancelling open order {ord.id} to release held qty for {trade.ticker}")
-                        trading_client.cancel_order_by_id(ord.id)
-                        cancelled_any = True
+                        try:
+                            trading_client.cancel_order_by_id(ord.id)
+                            cancelled_any = True
+                        except Exception as ce:
+                            print(f"[Auto-Cancel] Failed to cancel {ord.id}: {ce}")
                 
                 if cancelled_any:
                     time.sleep(1.5)  # Let Alpaca release the held quantity
@@ -1512,7 +1525,10 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                     "message": f"Successfully submitted single-leg {'limit' if trade.order_type == 'limit' else 'market'} order to close {qty_to_close} contract(s)."
                 }
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Could not close single-leg option: {str(e)}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Could not close single-leg option: {str(e)}. Target symbols: {list(target_symbols)}. Open orders: {open_orders_debug}"
+                )
  
         # For multi-leg spreads, calculate limit price from current positions
         alpaca_positions = trading_client.get_all_positions()
@@ -1687,7 +1703,7 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
     except Exception as err:
         raise HTTPException(
             status_code=400, 
-            detail=f"Alpaca API close execution failed: {str(err)}"
+            detail=f"Alpaca API close execution failed: {str(err)}. Target symbols: {list(target_symbols)}. Open orders: {open_orders_debug}"
         )
 
 class UpdateProfitTargetModel(BaseModel):
