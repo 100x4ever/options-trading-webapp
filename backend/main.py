@@ -1407,6 +1407,48 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                     "strike": float(strike_str),
                     "type": "CALL" if type_char.upper() == "C" else "PUT"
                 })
+
+        # Auto-cancel any active open orders holding our option contracts
+        import time
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import OrderStatus
+        
+        target_symbols = set()
+        if legs_matched:
+            for leg in order_legs:
+                target_symbols.add(format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"]))
+        else:
+            try:
+                strike_clean = trade.strike.replace('$', '').strip()
+                strike_val = float(re.search(r'(\d+(?:\.\d+)?)', strike_clean).group(1))
+                opt_type = "CALL" if "call" in trade.type.lower() else "PUT"
+                target_symbols.add(format_osi_symbol(trade.ticker, trade.expiry_yymmdd, opt_type, strike_val))
+            except Exception:
+                pass
+                
+        if target_symbols:
+            try:
+                open_orders = trading_client.get_orders(filter=GetOrdersRequest(status=OrderStatus.OPEN))
+                cancelled_any = False
+                for ord in open_orders:
+                    ord_symbols = set()
+                    if ord.legs:
+                        ord_symbols = {l.symbol for l in ord.legs}
+                    elif ord.symbol:
+                        ord_symbols = {ord.symbol}
+                        
+                    if ord_symbols & target_symbols:
+                        print(f"[Auto-Cancel] Cancelling open order {ord.id} to release held qty for {trade.ticker}")
+                        trading_client.cancel_order_by_id(ord.id)
+                        cancelled_any = True
+                
+                if cancelled_any:
+                    time.sleep(0.8)  # Let Alpaca release the held quantity
+            except Exception as oe:
+                print(f"[Auto-Cancel] Error cancelling open orders: {oe}")
+
+        if legs_matched:
+            pass
         else:
             # Single-leg option
             try:
