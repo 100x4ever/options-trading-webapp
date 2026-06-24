@@ -1443,7 +1443,7 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                         cancelled_any = True
                 
                 if cancelled_any:
-                    time.sleep(0.8)  # Let Alpaca release the held quantity
+                    time.sleep(1.5)  # Let Alpaca release the held quantity
             except Exception as oe:
                 print(f"[Auto-Cancel] Error cancelling open orders: {oe}")
 
