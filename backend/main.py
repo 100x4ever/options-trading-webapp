@@ -1513,7 +1513,18 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                         break
                 
                 if pos_qty == 0:
-                    raise HTTPException(status_code=400, detail=f"No active position found for contract {osi_symbol}")
+                    if "active_trades" in profile_data:
+                        profile_data["active_trades"] = [
+                            t for t in profile_data["active_trades"]
+                            if not (t["ticker"] == trade.ticker.upper() and any(l["symbol"] == osi_symbol for l in t.get("legs", [])))
+                        ]
+                        db["users"][trade.username.lower()]["state"] = user_state
+                        write_db(db)
+                    return {
+                        "status": "closed",
+                        "order_id": "already_closed",
+                        "message": "Position is already closed."
+                    }
                 
                 closing_side = OrderSide.SELL if pos_qty > 0 else OrderSide.BUY
                 qty_to_close = trade.close_qty if trade.close_qty is not None else abs(int(pos_qty))
@@ -1567,6 +1578,27 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
         # For multi-leg spreads, calculate limit price from current positions
         alpaca_positions = trading_client.get_all_positions()
         pos_map = {pos.symbol: pos for pos in alpaca_positions}
+        
+        has_active_legs = False
+        for leg in order_legs:
+            osi_symbol = format_osi_symbol(trade.ticker, trade.expiry_yymmdd, leg["type"], leg["strike"])
+            if osi_symbol in pos_map:
+                has_active_legs = True
+                break
+                
+        if not has_active_legs:
+            if "active_trades" in profile_data:
+                profile_data["active_trades"] = [
+                    t for t in profile_data["active_trades"]
+                    if not (t["ticker"] == trade.ticker.upper() and t["strike_str"] == trade.strike and format_date_to_yymmdd(t["expiry"]) == trade.expiry_yymmdd)
+                ]
+                db["users"][trade.username.lower()]["state"] = user_state
+                write_db(db)
+            return {
+                "status": "closed",
+                "order_id": "already_closed",
+                "message": "Position is already closed."
+            }
         
         net_value = 0.0
         closing_legs = []
