@@ -648,7 +648,7 @@ function renderDashboard() {
         const isExpanded = expandedDashboardPositions.has(posKey);
         
         const closeBtnHtml = pos.expiry_yymmdd ? `
-          <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+          <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}', '${pos.mark}')">Close</button>
         ` : '';
 
         const greeksHtml = isExpanded ? `
@@ -761,7 +761,7 @@ function renderPositions(useCache = false) {
       const isExpanded = expandedPositions.has(posKey);
       
       const closeBtnHtml = pos.expiry_yymmdd ? `
-        <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}')">Close</button>
+        <button class="action-btn-close" onclick="event.stopPropagation(); handleClosePosition('${pos.ticker}', '${pos.type}', \`${pos.strike}\`, ${pos.qty}, '${pos.expiry_yymmdd}', '${pos.mark}')">Close</button>
       ` : '-';
       
       // Strike display: default to strike, but override with breakeven price if available
@@ -3025,42 +3025,166 @@ function initExpirationDates() {
   }
 }
 
-window.handleClosePosition = function(ticker, type, strike, qty, expiry_yymmdd) {
-  if (!confirm(`Are you sure you want to close your ${ticker} ${type} position?`)) {
-    return;
-  }
-  
-  const payload = {
-    username: currentUser,
-    profile: state.activeProfile,
-    ticker: ticker,
-    type: type,
-    strike: strike,
-    qty: parseInt(qty) || 1,
-    expiry_yymmdd: expiry_yymmdd
-  };
-  
-  fetch('/api/positions/close', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  })
-  .then(res => {
-    if (!res.ok) {
-      return res.json().then(data => { throw new Error(data.detail || 'Failed to close position.'); });
+window.handleClosePosition = function(ticker, type, strike, qty, expiry_yymmdd, currentMark) {
+  // Remove any existing close position modal
+  const existing = document.getElementById("closePositionModal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "closePositionModal";
+  modal.style.position = "fixed";
+  modal.style.top = "0";
+  modal.style.left = "0";
+  modal.style.width = "100%";
+  modal.style.height = "100%";
+  modal.style.backgroundColor = "rgba(10, 12, 16, 0.85)";
+  modal.style.backdropFilter = "blur(12px)";
+  modal.style.display = "flex";
+  modal.style.justifyContent = "center";
+  modal.style.alignItems = "center";
+  modal.style.zIndex = "10000";
+  modal.style.animation = "fadeIn 0.2s ease-out";
+
+  // Animation CSS
+  const style = document.createElement("style");
+  style.innerHTML = `
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
-    return res.json();
-  })
-  .then(data => {
-    alert(data.message || 'Position closing order submitted successfully.');
-    renderDashboard();
-    renderPositions();
-  })
-  .catch(err => {
-    alert(`Error: ${err.message}`);
-  });
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+
+  const maxQty = parseInt(qty) || 1;
+  const parsedMark = parseFloat(currentMark) || 0.00;
+  const initialLimit = parsedMark > 0 ? parsedMark.toFixed(2) : "";
+
+  modal.innerHTML = `
+    <div style="background: rgba(20, 24, 33, 0.95); border: 1px solid rgba(255, 255, 255, 0.08); padding: 24px; border-radius: 16px; width: 90%; max-width: 400px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); animation: slideUp 0.25s ease-out; color: var(--text-main); font-family: inherit;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h3 style="margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.02em;">Close Position</h3>
+        <button onclick="document.getElementById('closePositionModal').remove()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 20px; padding: 4px; line-height: 1;">&times;</button>
+      </div>
+
+      <div style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted); background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span>Strategy:</span>
+          <strong style="color: var(--text-main);">${ticker} ${type}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span>Strikes:</span>
+          <strong style="color: var(--text-main);">${strike}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Current Mark:</span>
+          <strong style="color: var(--accent-neutral);">$${parsedMark.toFixed(2)}</strong>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;">Quantity to Close (Max: ${maxQty})</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <input type="number" id="close_qty_input" value="${maxQty}" min="1" max="${maxQty}" style="flex: 1; padding: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-main); font-size: 14px; outline: none;" />
+          <button onclick="document.getElementById('close_qty_input').value = ${maxQty}" style="padding: 10px 14px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-main); font-size: 12px; font-weight: 600; cursor: pointer;">MAX</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">Order Type</label>
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+          <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">
+            <input type="radio" name="close_order_type" value="market" checked onclick="document.getElementById('close_limit_container').style.display = 'none'" style="accent-color: var(--accent-neutral);" /> Market
+          </label>
+          <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">
+            <input type="radio" name="close_order_type" value="limit" onclick="document.getElementById('close_limit_container').style.display = 'block'" style="accent-color: var(--accent-neutral);" /> Limit
+          </label>
+        </div>
+
+        <div id="close_limit_container" style="display: none; animation: fadeIn 0.2s ease-out;">
+          <label style="display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px;">Limit Price (per contract)</label>
+          <div style="position: relative;">
+            <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 14px;">$</span>
+            <input type="number" id="close_limit_input" value="${initialLimit}" placeholder="e.g. ${initialLimit || '0.80'}" step="0.01" min="0.01" style="width: 100%; padding: 10px 10px 10px 24px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-main); font-size: 14px; outline: none; box-sizing: border-box;" />
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px;">
+        <button onclick="document.getElementById('closePositionModal').remove()" style="flex: 1; padding: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: var(--text-main); font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s;">Cancel</button>
+        <button id="confirm_close_btn" style="flex: 1; padding: 12px; background: var(--accent-negative); border: none; border-radius: 8px; color: white; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.2s;">Submit Order</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById("confirm_close_btn").onclick = function() {
+    const qtyInput = document.getElementById("close_qty_input");
+    const closeQty = parseInt(qtyInput.value) || maxQty;
+    
+    if (closeQty < 1 || closeQty > maxQty) {
+      alert(`Please enter a valid quantity between 1 and ${maxQty}.`);
+      return;
+    }
+
+    const orderType = document.querySelector('input[name="close_order_type"]:checked').value;
+    let limitPrice = null;
+    
+    if (orderType === "limit") {
+      const limitInput = document.getElementById("close_limit_input");
+      limitPrice = parseFloat(limitInput.value);
+      if (isNaN(limitPrice) || limitPrice <= 0) {
+        alert("Please enter a valid positive limit price.");
+        return;
+      }
+    }
+
+    const payload = {
+      username: currentUser,
+      profile: state.activeProfile,
+      ticker: ticker,
+      type: type,
+      strike: strike,
+      qty: maxQty,
+      expiry_yymmdd: expiry_yymmdd,
+      close_qty: closeQty,
+      order_type: orderType,
+      limit_price: limitPrice
+    };
+
+    const confirmBtn = document.getElementById("confirm_close_btn");
+    confirmBtn.disabled = true;
+    confirmBtn.innerText = "Submitting...";
+
+    fetch('/api/positions/close', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(res => {
+      if (!res.ok) {
+        return res.json().then(data => { throw new Error(data.detail || 'Failed to close position.'); });
+      }
+      return res.json();
+    })
+    .then(data => {
+      modal.remove();
+      alert(data.message || 'Position closing order submitted successfully.');
+      renderDashboard();
+      renderPositions();
+    })
+    .catch(err => {
+      confirmBtn.disabled = false;
+      confirmBtn.innerText = "Submit Order";
+      alert(`Error: ${err.message}`);
+    });
+  };
 };
 
 window.toggleDashboardPosition = function(posKey) {

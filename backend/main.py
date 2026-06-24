@@ -1366,6 +1366,9 @@ class ClosePositionModel(BaseModel):
     strike: str
     qty: int
     expiry_yymmdd: str
+    close_qty: Optional[int] = None
+    order_type: Optional[str] = "market"  # "market" or "limit"
+    limit_price: Optional[float] = None
 
 @app.post("/api/positions/close")
 def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks):
@@ -1424,30 +1427,47 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                     raise HTTPException(status_code=400, detail=f"No active position found for contract {osi_symbol}")
                 
                 closing_side = OrderSide.SELL if pos_qty > 0 else OrderSide.BUY
-                qty_to_close = abs(int(pos_qty))
+                qty_to_close = trade.close_qty if trade.close_qty is not None else abs(int(pos_qty))
                 
-                # For single-leg options, submit market order
-                order_request = MarketOrderRequest(
-                    symbol=osi_symbol,
-                    qty=qty_to_close,
-                    side=closing_side,
-                    time_in_force=TimeInForce.DAY
-                )
+                # Submit market or limit order
+                if trade.order_type == "limit" and trade.limit_price is not None:
+                    order_request = LimitOrderRequest(
+                        symbol=osi_symbol,
+                        qty=qty_to_close,
+                        side=closing_side,
+                        limit_price=trade.limit_price,
+                        time_in_force=TimeInForce.DAY
+                    )
+                else:
+                    order_request = MarketOrderRequest(
+                        symbol=osi_symbol,
+                        qty=qty_to_close,
+                        side=closing_side,
+                        time_in_force=TimeInForce.DAY
+                    )
                 order = trading_client.submit_order(order_request)
                 
-                # Remove from db registry active_trades
+                # Remove or decrement from db registry active_trades
                 if "active_trades" in profile_data:
-                    profile_data["active_trades"] = [
-                        t for t in profile_data["active_trades"]
-                        if not (t["ticker"] == trade.ticker.upper() and any(l["symbol"] == osi_symbol for l in t.get("legs", [])))
-                    ]
-                    db["users"][trade.username.lower()]["state"] = user_state
-                    write_db(db)
+                    matching_idx = -1
+                    for idx, t in enumerate(profile_data["active_trades"]):
+                        if t["ticker"] == trade.ticker.upper() and any(l["symbol"] == osi_symbol for l in t.get("legs", [])):
+                            matching_idx = idx
+                            break
+                    if matching_idx != -1:
+                        matched_trade = profile_data["active_trades"][matching_idx]
+                        current_qty = int(matched_trade.get("qty", qty_to_close))
+                        if qty_to_close >= current_qty:
+                            profile_data["active_trades"].pop(matching_idx)
+                        else:
+                            profile_data["active_trades"][matching_idx]["qty"] = current_qty - qty_to_close
+                        db["users"][trade.username.lower()]["state"] = user_state
+                        write_db(db)
  
                 return {
                     "status": "closed",
                     "order_id": str(order.id),
-                    "message": "Successfully submitted single-leg market order to close position."
+                    "message": f"Successfully submitted single-leg {'limit' if trade.order_type == 'limit' else 'market'} order to close {qty_to_close} contract(s)."
                 }
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Could not close single-leg option: {str(e)}")
@@ -1476,10 +1496,82 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                 else:
                     net_value -= mark
  
-        # Check if spread is credit or debit to determine favorable buffer
-        # is_credit indicates if the entry was credit.
         is_credit = "credit" in trade.type.lower() or "condor" in trade.type.lower()
         mid_price = abs(net_value)
+        qty_to_use = trade.close_qty if trade.close_qty is not None else trade.qty
+
+        # 1. Custom Limit Order (No Price-Walking)
+        if trade.order_type == "limit" and trade.limit_price is not None:
+            final_limit_price = trade.limit_price
+            if not is_credit:
+                final_limit_price = -abs(trade.limit_price)
+            else:
+                final_limit_price = abs(trade.limit_price)
+                
+            order_request = LimitOrderRequest(
+                qty=qty_to_use,
+                limit_price=final_limit_price,
+                order_class=OrderClass.MLEG,
+                time_in_force=TimeInForce.DAY,
+                legs=closing_legs
+            )
+            order = trading_client.submit_order(order_request)
+            
+            if "active_trades" in profile_data:
+                matching_idx = -1
+                for idx, t in enumerate(profile_data["active_trades"]):
+                    if t["ticker"] == trade.ticker.upper() and t["strike_str"] == trade.strike and format_date_to_yymmdd(t["expiry"]) == trade.expiry_yymmdd:
+                        matching_idx = idx
+                        break
+                if matching_idx != -1:
+                    matched_trade = profile_data["active_trades"][matching_idx]
+                    current_qty = int(matched_trade.get("qty", qty_to_use))
+                    if qty_to_use >= current_qty:
+                        profile_data["active_trades"].pop(matching_idx)
+                    else:
+                        profile_data["active_trades"][matching_idx]["qty"] = current_qty - qty_to_use
+                    db["users"][trade.username.lower()]["state"] = user_state
+                    write_db(db)
+            
+            return {
+                "status": "closed",
+                "order_id": str(order.id),
+                "message": f"Successfully submitted limit order to close {qty_to_use} contract(s) at {trade.limit_price:.2f}."
+            }
+
+        # 2. Custom Market Order (No Price-Walking)
+        elif trade.order_type == "market" and trade.close_qty is not None:
+            order_request = MarketOrderRequest(
+                qty=qty_to_use,
+                order_class=OrderClass.MLEG,
+                time_in_force=TimeInForce.DAY,
+                legs=closing_legs
+            )
+            order = trading_client.submit_order(order_request)
+            
+            if "active_trades" in profile_data:
+                matching_idx = -1
+                for idx, t in enumerate(profile_data["active_trades"]):
+                    if t["ticker"] == trade.ticker.upper() and t["strike_str"] == trade.strike and format_date_to_yymmdd(t["expiry"]) == trade.expiry_yymmdd:
+                        matching_idx = idx
+                        break
+                if matching_idx != -1:
+                    matched_trade = profile_data["active_trades"][matching_idx]
+                    current_qty = int(matched_trade.get("qty", qty_to_use))
+                    if qty_to_use >= current_qty:
+                        profile_data["active_trades"].pop(matching_idx)
+                    else:
+                        profile_data["active_trades"][matching_idx]["qty"] = current_qty - qty_to_use
+                    db["users"][trade.username.lower()]["state"] = user_state
+                    write_db(db)
+                    
+            return {
+                "status": "closed",
+                "order_id": str(order.id),
+                "message": f"Successfully submitted market order to close {qty_to_use} contract(s)."
+            }
+
+        # 3. Fallback to Price-Walking Optimizer
         # Tighten spread offset to 3% instead of 8% to stay closer to mid-price and prevent sandbox order cancellations
         spread_offset = max(0.01, round(mid_price * 0.03, 2))
         
