@@ -126,6 +126,36 @@ def format_osi_symbol(ticker: str, expiry_yymmdd: str, option_type: str, strike_
     
     return f"{ticker_clean}{expiry_yymmdd}{type_char}{strike_formatted}"
 
+# Self-healing helper that automatically detects and cancels conflicting open orders if a close fails due to held quantity
+def submit_order_with_self_healing(trading_client, order_request):
+    try:
+        return trading_client.submit_order(order_request)
+    except Exception as e:
+        error_msg = str(e)
+        if "insufficient qty" in error_msg or "related_orders" in error_msg:
+            try:
+                import re
+                import time
+                match = re.search(r'"related_orders"\s*:\s*\[(.*?)\]', error_msg)
+                if match:
+                    uuid_strings = match.group(1)
+                    related_ids = re.findall(r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', uuid_strings, re.IGNORECASE)
+                    if related_ids:
+                        print(f"[Self-Healing] Found conflicting related orders: {related_ids}")
+                        for r_id in related_ids:
+                            try:
+                                trading_client.cancel_order_by_id(r_id)
+                                print(f"[Self-Healing] Cancelled conflicting order {r_id}")
+                            except Exception as ce:
+                                print(f"[Self-Healing] Failed to cancel conflicting order {r_id}: {ce}")
+                        
+                        time.sleep(1.8)  # Wait for release
+                        print("[Self-Healing] Retrying order submission...")
+                        return trading_client.submit_order(order_request)
+            except Exception as re_err:
+                print(f"[Self-Healing] Retry block failed: {re_err}")
+        raise e
+
 # Helper to automatically submit a Good-Til-Cancelled Take Profit limit order for a position
 def auto_place_tp_order(trading_client, ticker: str, expiry_yymmdd: str, legs_list: list, qty: int, strategy_name: str, is_credit: bool, tp_price: float, entry_price: float = 1.0):
     try:
@@ -1504,7 +1534,7 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                         side=closing_side,
                         time_in_force=TimeInForce.DAY
                     )
-                order = trading_client.submit_order(order_request)
+                order = submit_order_with_self_healing(trading_client, order_request)
                 
                 # Remove or decrement from db registry active_trades
                 if "active_trades" in profile_data:
@@ -1577,7 +1607,7 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                 time_in_force=TimeInForce.DAY,
                 legs=closing_legs
             )
-            order = trading_client.submit_order(order_request)
+            order = submit_order_with_self_healing(trading_client, order_request)
             
             if "active_trades" in profile_data:
                 matching_idx = -1
@@ -1609,7 +1639,7 @@ def close_position(trade: ClosePositionModel, background_tasks: BackgroundTasks)
                 time_in_force=TimeInForce.DAY,
                 legs=closing_legs
             )
-            order = trading_client.submit_order(order_request)
+            order = submit_order_with_self_healing(trading_client, order_request)
             
             if "active_trades" in profile_data:
                 matching_idx = -1
