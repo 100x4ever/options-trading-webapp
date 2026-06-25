@@ -88,6 +88,19 @@ def format_date_to_yymmdd(expiry_str: str) -> str:
     if len(expiry_str) == 6 and expiry_str.isdigit():
         return expiry_str
         
+    # Try regex match for "YYYY-MM-DD" e.g., "2026-06-26"
+    match_iso = re.search(r'(\d{4})-(\d{2})-(\d{2})', expiry_str)
+    if match_iso:
+        year, month, day = match_iso.groups()
+        return f"{year[2:]}{month}{day}"
+
+    # Try regex match for "MM/DD/YYYY" or "MM/DD/YY" e.g., "06/26/2026" or "06/26/26"
+    match_slash = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', expiry_str)
+    if match_slash:
+        month, day, year = match_slash.groups()
+        y_val = year[2:] if len(year) == 4 else year
+        return f"{y_val}{int(month):02d}{int(day):02d}"
+
     months = {
         "jan": "01", "feb": "02", "mar": "03", "apr": "04", "may": "05", "jun": "06",
         "jul": "07", "aug": "08", "sep": "09", "oct": "10", "nov": "11", "dec": "12",

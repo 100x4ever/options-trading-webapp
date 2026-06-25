@@ -519,20 +519,8 @@ function applyProfileSettings(profileName) {
 
 // Hover Info Panel / Tooltips (Top Layer)
 function initHoverTooltips() {
-  const panel = document.getElementById("hoverInfoPanel");
-  const closeBtn = document.getElementById("hoverCloseBtn");
-
-  document.querySelectorAll(".metric-card").forEach(card => {
-    card.addEventListener("mouseenter", (e) => {
-      const metricLabel = card.querySelector(".metric-label").textContent.trim();
-      const content = tooltips[metricLabel] || "Options Trading Parameter Details.";
-      showHoverPanel(metricLabel, content);
-    });
-  });
-
-  closeBtn.addEventListener("click", () => {
-    panel.classList.remove("visible");
-  });
+  // Disabled hover metric tooltips on dashboard cards to keep the UI clean and prevent accidental overlays.
+  // The showHoverPanel notification toast remains active for system and order status notifications.
 }
 
 function showHoverPanel(title, htmlContent) {
