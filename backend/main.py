@@ -509,23 +509,47 @@ def get_alpaca_positions(username: str, profile: str):
         # Helper to match positions with locally registered active trades by leg strikes/types
         def find_active_trade_by_legs(ticker, expiry_yymmdd, strategy_type, legs):
             # legs is a list of dicts from the reconstructed position, e.g. [{"strike": 712.0, "type": "CALL", "side": "buy"}, ...]
-            leg_set = {(float(l["strike"]), l["type"].upper(), l["side"].lower()) for l in legs}
+            try:
+                leg_set = {(round(float(l["strike"]), 2), l["type"].upper(), l["side"].lower()) for l in legs}
+            except Exception as e:
+                print(f"[find_active_trade_by_legs] Error parsing reconstructed legs: {e}")
+                return None
+
+            # 1. Precise leg matching first
             for t in active_trades:
-                if t["ticker"] == ticker.upper() and format_date_to_yymmdd(t["expiry"]) == expiry_yymmdd:
-                    t_legs = t.get("legs", [])
-                    if len(t_legs) == len(legs):
-                        try:
-                            t_leg_set = {(float(tl["strike"]), tl["type"].upper(), tl["side"].lower()) for tl in t_legs}
-                            if t_leg_set == leg_set:
-                                return t
-                        except Exception:
-                            pass
+                if t["ticker"] == ticker.upper():
+                    # Format both expiries to standard yymmdd for exact comparison
+                    t_expiry_yymmdd = format_date_to_yymmdd(t["expiry"])
+                    if t_expiry_yymmdd == expiry_yymmdd:
+                        t_legs = t.get("legs", [])
+                        if len(t_legs) == len(legs):
+                            try:
+                                t_leg_set = {(round(float(tl["strike"]), 2), tl["type"].upper(), tl["side"].lower()) for tl in t_legs}
+                                if t_leg_set == leg_set:
+                                    print(f"[find_active_trade_by_legs] Precise match found for {ticker} {strategy_type} (expiry={expiry_yymmdd}) at price ${t.get('entry_price')}")
+                                    return t
+                            except Exception as e:
+                                print(f"[find_active_trade_by_legs] Error comparing legs: {e}")
             
-            # Loose fallback to original strategy-name matching if precise leg matching doesn't find a match
+            # 2. Loose fallback to original strategy-name matching if precise leg matching doesn't find a match
+            # But only fallback if there are no other active trades of the EXACT same strategy type on this expiration that could collide!
+            # To be safe, if there's only one trade of this strategy type on this expiry, use it.
+            matches = []
             for t in active_trades:
-                if t["ticker"] == ticker.upper() and format_date_to_yymmdd(t["expiry"]) == expiry_yymmdd:
-                    if t["strategy"].lower() == strategy_type.lower() or strategy_type.lower() in t["strategy"].lower():
-                        return t
+                if t["ticker"] == ticker.upper():
+                    t_expiry_yymmdd = format_date_to_yymmdd(t["expiry"])
+                    if t_expiry_yymmdd == expiry_yymmdd:
+                        if t["strategy"].lower() == strategy_type.lower() or strategy_type.lower() in t["strategy"].lower() or t["strategy"].lower() in strategy_type.lower():
+                            matches.append(t)
+            
+            if len(matches) == 1:
+                print(f"[find_active_trade_by_legs] Single loose match fallback found for {ticker} {strategy_type} (expiry={expiry_yymmdd}) at price ${matches[0].get('entry_price')}")
+                return matches[0]
+            elif len(matches) > 1:
+                print(f"[find_active_trade_by_legs] Multiple potential matches found for {ticker} {strategy_type} (expiry={expiry_yymmdd}). Skipping loose fallback to prevent average price corruption.")
+            else:
+                print(f"[find_active_trade_by_legs] No matches found for {ticker} {strategy_type} (expiry={expiry_yymmdd}). Reconstructed legs were: {leg_set}")
+                
             return None
 
         # Helper to find matching open orders for a set of leg symbols and extract limit prices
